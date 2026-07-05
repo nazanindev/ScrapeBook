@@ -9,6 +9,7 @@ Run from the backend dir:
 from __future__ import annotations
 import argparse
 import random
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -22,7 +23,7 @@ except ImportError:  # dotenv is optional; env may be set another way
 from app.publisher import experiments as exp_mod
 from app.publisher.caption import build_caption
 from app.publisher.config import Settings
-from app.publisher.experiments import Experiment
+from app.publisher.experiments import Experiment, Shot
 from app.publisher.pipeline_client import PipelineClient
 from app.publisher.render import render_collage
 
@@ -82,10 +83,15 @@ def cmd_run(settings: Settings, args) -> int:
     pub = TumblrPublisher(settings)
     pub.verify()  # fail fast on bad creds before scraping
 
+    if args.topics:  # a themed drop: one collage per explicit topic, grouped by --tag
+        topics = [t.strip() for t in re.split(r"[;\n]", args.topics) if t.strip()]
+        runs = [Experiment(args.tag, args.tag, [Shot(topic=t, density="dense")]) for t in topics]
+    else:
+        runs = [_resolve_experiment(args.experiment, rng) for _ in range(args.count)]
+
     posted = 0
-    for n in range(args.count):
-        exp = _resolve_experiment(args.experiment, rng)
-        print(f"\n=== run {n + 1}/{args.count}: {exp.name} (#{exp.tag}) · {len(exp.shots)} post(s) ===")
+    for n, exp in enumerate(runs):
+        print(f"\n=== run {n + 1}/{len(runs)}: {exp.name} (#{exp.tag}) · {len(exp.shots)} post(s) ===")
         try:
             with tempfile.TemporaryDirectory(prefix="euphemera-") as tmp:
                 rendered = _generate_and_render(settings, exp, Path(tmp))
@@ -120,6 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--state", default=None, help="draft | queue | published | private (overrides env)")
     p_run.add_argument("--count", type=int, default=1, help="how many posts to make this run")
     p_run.add_argument("--seed", type=int, default=None, help="rng seed for reproducible experiment choice")
+    p_run.add_argument("--topics", default=None, help="themed drop: explicit topics separated by ; (overrides --experiment)")
+    p_run.add_argument("--tag", default="dispatch", help="grouping tag for a --topics drop")
     p_run.set_defaults(func=cmd_run)
 
     args = parser.parse_args(argv)

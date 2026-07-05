@@ -6,7 +6,7 @@ import httpx
 from app.pipeline.vibe import classify_vibe
 
 # Fixed on every post: identity + the discovery communities we want to be found in.
-BRAND_TAGS = ["ephemera", "collage", "digitalcollage"]
+BRAND_TAGS = ["ephemera", "collage", "digitalcollage", "webweaving"]
 
 # substring found in a fragment's source_domain -> the source label we tag.
 _DOMAIN_SOURCES = [
