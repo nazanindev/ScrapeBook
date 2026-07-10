@@ -16,6 +16,7 @@ from app.scrapers.wikimedia import scrape_wikimedia
 from app.scrapers.music import scrape_music
 from app.scrapers.ddg import scrape_ddg_images
 from app.scrapers.patents import scrape_patents
+from app.scrapers.artic import scrape_artic
 from app.pipeline.extractor import extract_fragments
 from app.pipeline.ranker import rank_and_filter, rank_and_filter_incremental
 from app.pipeline.composer import compose, compose_incremental, _seed_from_topic
@@ -39,6 +40,15 @@ celery_app.conf.update(
 def task_scrape_images(self, topic: str) -> list[dict]:
     try:
         return scrape_images(topic)
+    except SoftTimeLimitExceeded:
+        logger.warning("scraper timed out: %s topic=%r", self.name, topic)
+        return []
+
+
+@celery_app.task(bind=True)
+def task_scrape_artic(self, topic: str) -> list[dict]:
+    try:
+        return scrape_artic(topic)
     except SoftTimeLimitExceeded:
         logger.warning("scraper timed out: %s topic=%r", self.name, topic)
         return []
@@ -127,12 +137,12 @@ def task_scrape_web_bodies(self, topic: str) -> list[dict]:
 
 @celery_app.task(bind=True)
 def task_assemble(self, results: list, job_id: str, topic: str, density: str | None = None, layout_seed: int | None = None) -> None:
-    images_data, ddg_data, texts_data, archive_data = results
+    images_data, ddg_data, artic_data, texts_data, archive_data = results
 
     try:
         _update_job(job_id, JobStatus.running, progress=60)
 
-        fragments = extract_fragments(images_data + ddg_data, texts_data, archive_data)
+        fragments = extract_fragments(images_data + ddg_data, texts_data, archive_data, artic=artic_data)
         _update_job(job_id, JobStatus.running, progress=75)
 
         if layout_seed is None:
@@ -210,6 +220,7 @@ def task_orchestrate(self, job_id: str, topic: str, density: str | None = None, 
         [
             task_scrape_images.s(topic),
             task_scrape_ddg.s(topic),
+            task_scrape_artic.s(topic),
             task_scrape_text.s(topic),
             task_scrape_archive.s(topic),
         ],
