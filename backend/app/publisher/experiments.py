@@ -34,11 +34,11 @@ META_TOPICS: dict[str, list[str]] = {
     "nature": ["fog", "glacier", "tide", "orchard", "moth", "marsh", "moss", "frost", "estuary"],
     "science": ["observatory", "telescope", "greenhouse", "specimen", "barometer", "microscope", "herbarium"],
     "art": ["fresco", "engraving", "mosaic", "portrait", "still life", "etching", "tapestry"],
-    "culture": ["carnival", "festival", "arcade", "fairground", "vaudeville", "phonograph"],
-    "architecture": ["lighthouse", "aqueduct", "rotunda", "pavilion", "stairwell", "bandstand", "facade"],
-    "transport": ["tram", "canal", "railway", "harbor", "ferry", "locomotive", "dirigible"],
-    "communication": ["telegraph", "switchboard", "telephone", "radio", "typewriter", "transmitter"],
-    "ritual": ["procession", "masquerade", "shrine", "pilgrimage", "maypole", "vigil"],
+    "culture": ["carnival", "festival", "arcade", "fairground", "vaudeville", "phonograph", "sideshow", "waxworks"],
+    "architecture": ["lighthouse", "aqueduct", "rotunda", "pavilion", "stairwell", "bandstand", "facade", "colonnade"],
+    "transport": ["tram", "canal", "railway", "harbor", "ferry", "locomotive", "dirigible", "funicular"],
+    "communication": ["telegraph", "switchboard", "telephone", "radio", "typewriter", "transmitter", "teleprinter"],
+    "ritual": ["procession", "masquerade", "shrine", "pilgrimage", "maypole", "vigil", "requiem"],
     "industry": ["loom", "kiln", "foundry", "mill", "cannery", "colliery", "printing press"],
 }
 
@@ -58,18 +58,26 @@ POLYSEMOUS = [
     "mercury", "echo", "current", "charge", "vessel", "mantle", "fault", "relay",
     "signal", "drift", "atlas", "iris", "nova", "ember", "relic", "specter",
     "mirror", "needle", "crown", "vault", "tongue", "compass", "prism", "static",
+    "plate", "band", "capital", "organ", "temple", "pupil", "score", "chord",
+    "wake", "spring", "grain", "circuit", "spine", "cell",
 ]
 EVOCATIVE = [
     "vertigo", "mirage", "reverie", "oblivion", "trance", "rupture", "decay",
     "hush", "fever", "halo", "eclipse", "threshold", "undertow", "delirium",
+    "longing", "aftermath", "solstice", "penumbra", "murmur", "vestige",
+    "afterglow", "torpor", "swoon", "duskfall", "stupor", "hollow", "quietude",
 ]
 MATTER = [
     "rust", "salt", "ash", "glass", "copper", "neon", "velvet", "smoke", "amber",
     "tar", "chrome", "bone", "wax", "ivory", "obsidian",
+    "porcelain", "granite", "lichen", "cinder", "brass", "resin", "graphite",
+    "slate", "quartz", "vellum", "silt", "coal", "soot",
 ]
 VESSELS = [
     "cathedral", "ruin", "engine", "machine", "garden", "opera", "circus", "asylum",
     "observatory", "reliquary", "mausoleum", "carnival", "altar", "menagerie",
+    "conservatory", "amphitheatre", "clocktower", "sanatorium", "planetarium",
+    "aviary", "orangery", "crypt", "belfry", "granary", "arboretum", "atrium",
 ]
 
 
@@ -140,17 +148,41 @@ def build_neutral_zone(rng: random.Random) -> Experiment:
                       [Shot(topic=t, density=None, meta_topics=(mt,), tags=(t,)) for t in pair])
 
 
+def build_diptych(rng: random.Random) -> Experiment:
+    """Two posts from two different buckets — a cross-domain pairing under one tag.
+
+    Unlike neutral-zone (one bucket), the two halves come from unrelated meta-topics,
+    so the pair reads as a deliberate juxtaposition (industry × ritual, transport × art).
+    """
+    mt_a, mt_b = rng.sample(list(META_TOPICS), 2)
+    word_a = rng.choice(META_TOPICS[mt_a])
+    word_b = rng.choice(META_TOPICS[mt_b])
+    return Experiment("diptych", "diptych", [
+        Shot(topic=word_a, density="dense", meta_topics=(mt_a,), tags=(word_a,)),
+        Shot(topic=word_b, density="dense", meta_topics=(mt_b,), tags=(word_b,)),
+    ])
+
+
 def _drift_pick(rng: random.Random) -> tuple[str, tuple[str, ...]]:
-    """Return (topic, component_tags)."""
+    """Return (topic, component_tags). Several grammars, none dominant."""
     r = rng.random()
-    if r < 0.45:                                   # single polysemous/evocative word -> domain drift
+    if r < 0.28:                                   # single polysemous/evocative word -> domain drift
         w = rng.choice(POLYSEMOUS + EVOCATIVE)
         return w, (w,)
-    if r < 0.80:                                   # concrete matter + charged vessel
+    if r < 0.50:                                   # concrete matter + charged vessel
         m, v = rng.choice(MATTER), rng.choice(VESSELS)
         return f"{m} {v}", (m, v)                  # "salt cathedral", "neon circus"
-    m, e = rng.choice(MATTER), rng.choice(EVOCATIVE)
-    return f"{m} {e}", (m, e)                      # "rust vertigo", "amber undertow"
+    if r < 0.68:                                   # matter + evocative abstraction
+        m, e = rng.choice(MATTER), rng.choice(EVOCATIVE)
+        return f"{m} {e}", (m, e)                  # "rust vertigo", "amber undertow"
+    if r < 0.83:                                   # polysemous noun + matter -> real-ish, still strange
+        p, m = rng.choice(POLYSEMOUS), rng.choice(MATTER)
+        return f"{p} {m}", (p, m)                  # "mercury glass", "signal copper"
+    if r < 0.94:                                   # evocative + charged vessel
+        e, v = rng.choice(EVOCATIVE), rng.choice(VESSELS)
+        return f"{e} {v}", (e, v)                  # "delirium carnival", "oblivion observatory"
+    m, y = rng.choice(MATTER), rng.choice(YEARS)   # matter anchored to a year -> temporal drift
+    return f"{m} {y}", (m,)                        # "amber 1931" (only the matter is a tag)
 
 
 def build_drift(rng: random.Random) -> Experiment:
@@ -217,16 +249,19 @@ BUILDERS = {
     "seed-series": build_seed_series,
     "density-ladder": build_density_ladder,
     "neutral-zone": build_neutral_zone,
+    "diptych": build_diptych,
 }
 
-# drift carries the walk (pushes the system's edges); the historical/curated work is
-# an occasional interesting drip. wander (Wikipedia) stays available via --experiment
-# but is out of the random feed — too square to govern the walk.
+# drift still carries the walk (pushes the system's edges), but no longer swamps the
+# feed — the curated/structured builders get enough weight to break the monotony.
+# wander (Wikipedia) stays available via --experiment but is out of the random feed —
+# too square to govern the walk.
 WEIGHTS = {
-    "drift": 10,
-    "specimen": 2,
-    "density-ladder": 1,
-    "seed-series": 1,
+    "drift": 8,
+    "specimen": 3,
+    "density-ladder": 2,
+    "seed-series": 2,
+    "diptych": 2,
 }
 
 

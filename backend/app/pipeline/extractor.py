@@ -38,6 +38,7 @@ def extract_fragments(
     archive: list[dict],
     wikimedia: list[dict] | None = None,
     enriched_texts: list[dict] | None = None,
+    artic: list[dict] | None = None,
 ) -> list[Fragment]:
     fragments: list[Fragment] = []
 
@@ -57,6 +58,15 @@ def extract_fragments(
             source_url=img.get("source_url", ""),
             source_domain=urlparse(img.get("source_url", "")).netloc,
             image_source="wikimedia",
+        ))
+
+    for img in (artic or []):
+        fragments.append(Fragment(
+            type=FragmentType.image,
+            content=img["url"],
+            source_url=img.get("source_url", ""),
+            source_domain=urlparse(img.get("source_url", "")).netloc,
+            image_source="artic",
         ))
 
     all_texts = list(texts) + list(enriched_texts or [])
