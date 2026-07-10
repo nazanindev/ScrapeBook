@@ -1,4 +1,4 @@
-# euphemera
+# ephemera
 
 A bot that wanders through **Ephemera** and posts the results to a Tumblr as a
 running case study of the system. Each post is a *specimen* — a collage plus a
@@ -68,7 +68,7 @@ python -m app.publisher.publish run    --experiment random --state draft
 - `run` — also posts. Defaults to `--state draft` so nothing goes public until you look.
 
 ### Going live / scheduling
-Set `EUPHEMERA_POST_STATE=queue` and configure the blog's queue (Settings → Queue)
+Set `EPHEMERA_POST_STATE=queue` and configure the blog's queue (Settings → Queue)
 to drip 1–3 posts/day at random times — that's your scheduler for free. Then a cron
 that runs `... publish run --experiment random --count 3` every morning keeps the
 queue fed.

@@ -26,7 +26,7 @@ class Settings:
     # Tumblr user tokens (from api.tumblr.com/console — see README)
     oauth_token: str
     oauth_token_secret: str
-    blog: str  # e.g. "euphemera.tumblr.com"
+    blog: str  # e.g. "ephemera.tumblr.com"
 
     # Where the Ephemera pipeline + frontend live.
     # NOTE: the publisher injects collage JSON straight into the render page, so the
@@ -55,6 +55,6 @@ class Settings:
             blog=_normalize_blog(req("TUMBLR_BLOG")),
             api_base_url=os.getenv("EPHEMERA_API_URL", "http://localhost:8000").rstrip("/"),
             frontend_url=os.getenv("EPHEMERA_FRONTEND_URL", "http://localhost:3000").rstrip("/"),
-            post_state=os.getenv("EUPHEMERA_POST_STATE", "draft"),
-            render_scale=int(os.getenv("EUPHEMERA_RENDER_SCALE", "1")),
+            post_state=os.getenv("EPHEMERA_POST_STATE", "draft"),
+            render_scale=int(os.getenv("EPHEMERA_RENDER_SCALE", "1")),
         )

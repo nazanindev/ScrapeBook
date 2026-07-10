@@ -145,7 +145,7 @@ def palette_tags(image_path: str | None) -> list[str]:
 
 # ── content-aware tags: ask Wikipedia what the subject actually IS ────────────
 _API_URL = "https://en.wikipedia.org/w/api.php"
-_WIKI_UA = "euphemera/1.0 (ephemera tumblr bot; +https://github.com/nazanindev/ephemera)"
+_WIKI_UA = "ephemera/1.0 (ephemera tumblr bot; +https://github.com/nazanindev/ephemera)"
 _ANY_YEAR_RE = re.compile(r"\b(1\d{3}|20[0-2]\d)\b")  # 1000–2029, for founding years
 _TYPE_STOP = {"the", "a", "an", "of", "and", "or", "former", "small", "large"}
 

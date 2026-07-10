@@ -161,7 +161,7 @@ def build_drift(rng: random.Random) -> Experiment:
 
 # ── the infinite engine: random Wikipedia subjects ──────────────────────────
 _WIKI_API = "https://en.wikipedia.org/w/api.php"
-_WIKI_UA = "euphemera/1.0 (ephemera tumblr bot; +https://github.com/nazanindev/ephemera)"
+_WIKI_UA = "ephemera/1.0 (ephemera tumblr bot; +https://github.com/nazanindev/ephemera)"
 
 
 def _good_seed(title: str) -> bool:

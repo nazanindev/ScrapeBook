@@ -391,7 +391,7 @@ function setStatus(msg) {
 }
 
 // ── headless render hook ────────────────────────────────────────────────────
-// Inert during normal use. The euphemera publisher injects a collage as
+// Inert during normal use. The ephemera publisher injects a collage as
 // window.__EPHEMERA_COLLAGE__ (via Playwright add_init_script), or you can open
 // ?job=<id> to render an existing job. Either way we render, wait for every
 // image to settle, then flip window.__EPHEMERA_RENDER_READY__ so the

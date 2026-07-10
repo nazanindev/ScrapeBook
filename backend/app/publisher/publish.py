@@ -1,9 +1,9 @@
-"""euphemera CLI — wander through Ephemera and post specimens to Tumblr.
+"""ephemera CLI — wander through Ephemera and post specimens to Tumblr.
 
 Run from the backend dir:
 
     python -m app.publisher.publish verify
-    python -m app.publisher.publish render --experiment density-ladder --out /tmp/euphemera
+    python -m app.publisher.publish render --experiment density-ladder --out /tmp/ephemera
     python -m app.publisher.publish run    --experiment random --state draft
 """
 from __future__ import annotations
@@ -93,7 +93,7 @@ def cmd_run(settings: Settings, args) -> int:
     for n, exp in enumerate(runs):
         print(f"\n=== run {n + 1}/{len(runs)}: {exp.name} (#{exp.tag}) · {len(exp.shots)} post(s) ===")
         try:
-            with tempfile.TemporaryDirectory(prefix="euphemera-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="ephemera-") as tmp:
                 rendered = _generate_and_render(settings, exp, Path(tmp))
                 for r in rendered:
                     caption, tags = build_caption(r["shot"].topic, r["collage"], r["shot"].density, exp, r["shot"].meta_topics, str(r["png"]), r["shot"].tags)
@@ -107,7 +107,7 @@ def cmd_run(settings: Settings, args) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="euphemera", description="post Ephemera specimens to Tumblr")
+    parser = argparse.ArgumentParser(prog="ephemera", description="post Ephemera specimens to Tumblr")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_verify = sub.add_parser("verify", help="check Tumblr credentials")
@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     p_render = sub.add_parser("render", help="generate + screenshot, print captions, post nothing")
     p_render.add_argument("--experiment", default="random",
                           help="density-ladder | seed-series | neutral-zone | domain-drift | specimen | random")
-    p_render.add_argument("--out", default="./euphemera-out", help="dir for rendered pngs")
+    p_render.add_argument("--out", default="./ephemera-out", help="dir for rendered pngs")
     p_render.add_argument("--seed", type=int, default=None, help="rng seed for reproducible experiment choice")
     p_render.set_defaults(func=cmd_render)
 

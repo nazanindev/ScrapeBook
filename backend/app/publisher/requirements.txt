@@ -1,4 +1,4 @@
-# euphemera publisher — self-contained; runs on the host while the backend is in Docker.
+# ephemera publisher — self-contained; runs on the host while the backend is in Docker.
 # Versions verified on Python 3.14.
 httpx==0.28.1
 pytumblr==0.1.2
