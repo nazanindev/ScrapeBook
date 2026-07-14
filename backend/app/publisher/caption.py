@@ -18,7 +18,11 @@ _DOMAIN_SOURCES = [
     ("musicbrainz", "musicbrainz"),
     ("patents.google", "patents"),
     ("archive.org", "internet archive"),
+    ("poetrydb", "poetry"),
 ]
+
+# image_source field -> the source label we tag (nicer than the raw slug).
+_IMAGE_SOURCES = {"artic": "art institute"}
 
 _YEAR_RE = re.compile(r"\b(1[89]\d\d|20[0-2]\d)\b")
 _CANVAS_BG = (237, 229, 216)  # the cream background; excluded from palette analysis
@@ -57,7 +61,7 @@ def collage_sources(collage: dict) -> list[str]:
             found.add("wayback machine")
         src = f.get("image_source")
         if src:
-            found.add(src)
+            found.add(_IMAGE_SOURCES.get(src, src))
         dom = (f.get("source_domain") or "").lower()
         for needle, label in _DOMAIN_SOURCES:
             if needle in dom:
