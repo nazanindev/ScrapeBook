@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 import random
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -112,15 +113,22 @@ def _segments(title: str) -> list[list[str]]:
     """
     t = _DROP_QUOTED.sub(" ", title)
     t = _DROP_PARENS.sub(" ", t.lower())         # drop parentheticals: "(recto)"
+    # Fold accents to ASCII first. Stripping non-ASCII outright splits a word around
+    # its own diacritic ("Brunswick-Lüneburg" -> "brunswick-l neburg").
+    t = unicodedata.normalize("NFKD", t).encode("ascii", "ignore").decode()
     out: list[list[str]] = []
     for seg in _SEGMENT_SPLIT.split(t):
         seg = re.sub(r"[^a-z'\s-]", " ", seg)    # drop digits + remaining punctuation
         toks: list[str] = []
         for tok in seg.split():
             tok = tok.strip("'-")
-            # apostrophe survivors are possessives/contractions — nearly always
-            # proper-name noise ("vulcan's", "ingres's"); break the segment there.
-            if not tok or "'" in tok:
+            # Break the segment on: apostrophe survivors, which are possessives or
+            # contractions and nearly always proper-name noise ("vulcan's", "ingres's");
+            # and stray short tokens that aren't real connectives — enumeration letters
+            # and foreign particles ("initial q", "henry vi", "helena tromper du bois").
+            # Left in place they act as connective glue and splice unrelated names into
+            # a phrase, since anything under three letters reads as a non-content token.
+            if not tok or "'" in tok or (len(tok) < 3 and tok not in CONNECTORS):
                 if toks:
                     out.append(toks)
                     toks = []
@@ -131,7 +139,7 @@ def _segments(title: str) -> list[list[str]]:
     return out
 
 
-def _is_content(tok: str) -> bool:
+def is_content(tok: str) -> bool:
     return tok not in CONNECTORS and len(tok) >= 3
 
 
@@ -139,7 +147,7 @@ def _tight_runs(seg: list[str]) -> list[list[str]]:
     """Runs of content words, breaking at connectors — the original 2-3 word chunks."""
     runs, cur = [], []
     for tok in seg:
-        if _is_content(tok):
+        if is_content(tok):
             cur.append(tok)
         elif cur:
             runs.append(cur)
@@ -161,12 +169,12 @@ def _composed_spans(seg: list[str]) -> list[str]:
         # Anchor only at a natural phrase boundary — the start of the segment, or the
         # word after a connector. Anchoring mid-noun-phrase yields sliced-open spans
         # ("case with a couple playing chess" out of "Mirror Case with a Couple...").
-        if not _is_content(tok) or (i and _is_content(seg[i - 1])):
+        if not is_content(tok) or (i and is_content(seg[i - 1])):
             continue
         span, content, last_content = [], 0, -1
         for j in range(i, len(seg)):
             t = seg[j]
-            if _is_content(t):
+            if is_content(t):
                 if content == _SPAN_MAX_CONTENT:
                     break
                 content += 1
@@ -183,7 +191,7 @@ def _composed_spans(seg: list[str]) -> list[str]:
         # drop that word. If the next word is a CONNECTOR, the phrase completed at a
         # natural boundary ("storage jar with horizontal bands") — leave it alone.
         after = i + last_content + 1
-        if after < len(seg) and _is_content(seg[after]):
+        if after < len(seg) and is_content(seg[after]):
             span = _drop_last_content(span)
         text = " ".join(span)
         if (_connectors(span) and _content_count(span) >= _SPAN_MIN_CONTENT
@@ -196,20 +204,20 @@ def _composed_spans(seg: list[str]) -> list[str]:
 
 
 def _connectors(span: list[str]) -> int:
-    return sum(1 for t in span if not _is_content(t))
+    return sum(1 for t in span if not is_content(t))
 
 
 def _content_count(span: list[str]) -> int:
-    return sum(1 for t in span if _is_content(t))
+    return sum(1 for t in span if is_content(t))
 
 
 def _drop_last_content(span: list[str]) -> list[str]:
     """Remove the trailing content word, then any connectors it left dangling."""
-    while span and not _is_content(span[-1]):
+    while span and not is_content(span[-1]):
         span = span[:-1]
     if span:
         span = span[:-1]
-    while span and not _is_content(span[-1]):
+    while span and not is_content(span[-1]):
         span = span[:-1]
     return span
 
@@ -249,25 +257,31 @@ def _name_tokens(name: str | None) -> frozenset[str]:
 # ── sources (all keyless; every fetch degrades to [] on any failure) ──────────────
 # Each returns (title, creator) pairs — the creator is used only to suppress its own
 # tokens from the harvest, never stored.
-def _fetch_aic(rng: random.Random, pages: int = 4, per_page: int = 100) -> list[tuple[str, str]]:
-    """Public-domain artworks only — see the note by _AIC_SEARCH."""
+def _fetch_aic(rng: random.Random, seeds: int = 4, per_page: int = 100) -> list[tuple[str, str]]:
+    """Public-domain artworks only — see the note by _AIC_SEARCH.
+
+    Variety comes from varying the QUERY, not the page: AIC caps a result set at
+    page * limit <= 1000, so deep pages 403 ("too many results") and paging alone
+    can only ever reach the same first thousand objects.
+    """
     out: list[tuple[str, str]] = []
-    try:
-        for page in rng.sample(range(1, 60), k=pages):
-            resp = httpx.get(
-                _AIC_SEARCH,
-                params={"query[term][is_public_domain]": "true",
-                        "fields": "title,artist_title", "limit": per_page, "page": page},
-                timeout=15, headers=_HEADERS,
-            )
-            if resp.status_code != 200:
+    for seed in rng.sample(_TEXT_SEEDS, k=min(seeds, len(_TEXT_SEEDS))):
+        for page in (1, 2):
+            try:
+                resp = httpx.get(
+                    _AIC_SEARCH,
+                    params={"q": seed, "query[term][is_public_domain]": "true",
+                            "fields": "title,artist_title", "limit": per_page, "page": page},
+                    timeout=15, headers=_HEADERS,
+                )
+                if resp.status_code != 200:
+                    continue
+                for art in resp.json().get("data", []):
+                    t = (art.get("title") or "").strip()
+                    if t:
+                        out.append((t, art.get("artist_title") or ""))
+            except Exception:
                 continue
-            for art in resp.json().get("data", []):
-                t = (art.get("title") or "").strip()
-                if t:
-                    out.append((t, art.get("artist_title") or ""))
-    except Exception:
-        pass
     return out
 
 

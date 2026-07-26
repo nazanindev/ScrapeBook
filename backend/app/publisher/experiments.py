@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
-from app.publisher.corpora import CONNECTORS, Corpus, load as load_corpus
+from app.publisher.corpora import CONNECTORS, Corpus, is_content, load as load_corpus
 
 
 @dataclass
@@ -209,14 +209,15 @@ def topic_shape(topic: str) -> str:
     a composed one states a relation.
     """
     words = topic.split()
-    n = sum(1 for w in words if w.lower() not in CONNECTORS)
+    n = sum(1 for w in words if is_content(w.lower()))
     kind = "composed" if any(w.lower() in CONNECTORS for w in words) else "bare"
     return f"{kind}-{min(n, 4)}w" + ("+" if n >= 4 else "")
 
 
 def content_words(phrase: str) -> tuple[str, ...]:
-    """The taggable words of a phrase — connectors make useless tags (#of, #the)."""
-    return tuple(w for w in phrase.split() if w.lower() not in CONNECTORS)
+    """The taggable words of a phrase. Connectors make useless tags (#of, #the), and so
+    do the stray short tokens that survive in a topic (#q from "initial q with saints")."""
+    return tuple(w for w in phrase.split() if is_content(w.lower()))
 
 
 def _bucket_of(word: str) -> tuple[str, ...]:
@@ -293,9 +294,17 @@ def build_graft(rng: random.Random, ctx: WalkContext) -> Experiment:
     collision this module exists to avoid — at 3+ words, enough structure survives
     for the swap to read as a mutation rather than a dice roll.
     """
-    picked = _pick_phrase(rng, ctx)
-    if not picked or len(content_words(picked[0])) < 3:
-        return build_frame(rng, ctx)
+    # Only ~2 in 5 corpus phrases are long enough to graft, so a single draw fell back
+    # more often than it grafted. Re-draw a few times first, and fall back to a plain
+    # lift rather than a frame — if we already hold a composed phrase, lifting it whole
+    # beats discarding it for two curated words in a template.
+    picked = None
+    for _ in range(4):
+        picked = _pick_phrase(rng, ctx)
+        if picked and len(content_words(picked[0])) >= 3:
+            break
+    else:
+        return build_lift(rng, ctx) if picked else build_frame(rng, ctx)
     phrase, src = picked
     words = phrase.split()
     swappable = [i for i, w in enumerate(words) if w.lower() not in CONNECTORS]
