@@ -25,6 +25,23 @@ class TumblrPublisher:
             raise TumblrError(f"tumblr auth failed: {info}")
         return info["user"]
 
+    def recent_posts(self, limit: int = 50, offset: int = 0) -> list[dict]:
+        """Fetch recent posts (published + drafts + queue) with their id / state /
+        note_count — the feedback signal for `sync`. pytumblr exposes each state through
+        a distinct method (`posts` rejects a `state` field), so we union all three."""
+        out: list[dict] = []
+        resp = self._client.posts(self.blog, limit=limit, offset=offset)
+        if isinstance(resp, dict):
+            out.extend(resp.get("posts", []))
+        for fetch in (self._client.drafts, self._client.queue):
+            try:
+                r = fetch(self.blog, limit=limit)
+                if isinstance(r, dict):
+                    out.extend(r.get("posts", []))
+            except Exception:
+                pass
+        return out
+
     def post_photo(
         self,
         image_path: str,

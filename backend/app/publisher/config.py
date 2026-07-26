@@ -39,10 +39,12 @@ class Settings:
     render_scale: int  # device pixel ratio for the screenshot (1 = 1600x2200)
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls, require_tumblr: bool = True) -> "Settings":
+        """Load settings from env. `require_tumblr=False` lets local-only commands
+        (steer, refresh-corpora, review) run without Tumblr credentials configured."""
         def req(name: str) -> str:
             v = os.getenv(name, "").strip()
-            if not v:
+            if not v and require_tumblr:
                 hint = " — run: python -m app.publisher.get_tokens" if "OAUTH" in name else ""
                 raise RuntimeError(f"{name} is empty in app/publisher/.env{hint}")
             return v

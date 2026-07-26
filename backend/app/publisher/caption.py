@@ -8,6 +8,10 @@ from app.pipeline.vibe import classify_vibe
 # Fixed on every post: identity + the discovery communities we want to be found in.
 BRAND_TAGS = ["ephemera", "collage", "digitalcollage", "webweaving"]
 
+# Modes whose topics are phrases/compounds with no Wikipedia article — a semantic_tags
+# lookup just 404s and adds latency/noise. Concrete single-word modes still get it.
+_NO_SEMANTIC = {"drift", "lift", "graft", "frame"}
+
 # substring found in a fragment's source_domain -> the source label we tag.
 _DOMAIN_SOURCES = [
     ("wikipedia", "wikipedia"),
@@ -248,8 +252,8 @@ def build_tags(topic, collage, density, experiment, meta_topics, image_path=None
     core = list(BRAND_TAGS)
     if experiment is not None and experiment.tag:
         core.append(experiment.tag)
-    if experiment is None or experiment.tag != "drift":
-        core.extend(semantic_tags(topic))  # place/subject/year: useful for concrete subjects, noise on drift
+    if experiment is None or experiment.tag not in _NO_SEMANTIC:
+        core.extend(semantic_tags(topic))  # place/subject/year: useful for concrete subjects, noise on phrases
     core.extend(meta_topics or ())
     core.extend(t.strip().lower().replace(" ", "-") for t in extra_tags if t)  # topic components: still-life, fog
     core.append(band)
@@ -261,7 +265,10 @@ def build_tags(topic, collage, density, experiment, meta_topics, image_path=None
     if len(sources) >= 4:
         axes.append("multi-source")
 
-    ordered = core + axes + [topic.strip().lower()] + sources
+    # Tag the topic itself only when it's a single word; a lifted phrase ("mourning
+    # brooch") stays in the caption title, and its component words carry navigation.
+    topic_tag = [topic.strip().lower()] if len(topic.split()) == 1 else []
+    ordered = core + axes + topic_tag + sources
     seen: set[str] = set()
     out = [t for t in ordered if t and not (t in seen or seen.add(t))]
     return out[:28]  # Tumblr's per-post ceiling is ~30

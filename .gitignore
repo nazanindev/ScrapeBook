@@ -7,3 +7,8 @@ venv/
 *.egg-info/
 .DS_Store
 *.log
+
+# walker state (regenerated / local): the corpus cache and the local steer direction.
+# The private ledger never lives on disk — it's server-side behind the API.
+backend/app/publisher/corpus_cache.json
+backend/app/publisher/direction.json

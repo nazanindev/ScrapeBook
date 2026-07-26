@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from app.publisher.corpora import CONNECTORS, Corpus, load as load_corpus
+
 
 @dataclass
 class Shot:
@@ -18,6 +20,7 @@ class Shot:
     layout_seed: int | None = None
     meta_topics: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()             # the topic's component parts, e.g. ("still life", "fog")
+    source: str = ""                       # corpus source the topic came from (aic | met | cma)
 
 
 @dataclass
@@ -163,32 +166,167 @@ def build_diptych(rng: random.Random) -> Experiment:
     ])
 
 
-def _drift_pick(rng: random.Random) -> tuple[str, tuple[str, ...]]:
-    """Return (topic, component_tags). Several grammars, none dominant."""
-    r = rng.random()
-    if r < 0.28:                                   # single polysemous/evocative word -> domain drift
-        w = rng.choice(POLYSEMOUS + EVOCATIVE)
-        return w, (w,)
-    if r < 0.50:                                   # concrete matter + charged vessel
-        m, v = rng.choice(MATTER), rng.choice(VESSELS)
-        return f"{m} {v}", (m, v)                  # "salt cathedral", "neon circus"
-    if r < 0.68:                                   # matter + evocative abstraction
-        m, e = rng.choice(MATTER), rng.choice(EVOCATIVE)
-        return f"{m} {e}", (m, e)                  # "rust vertigo", "amber undertow"
-    if r < 0.83:                                   # polysemous noun + matter -> real-ish, still strange
-        p, m = rng.choice(POLYSEMOUS), rng.choice(MATTER)
-        return f"{p} {m}", (p, m)                  # "mercury glass", "signal copper"
-    if r < 0.94:                                   # evocative + charged vessel
-        e, v = rng.choice(EVOCATIVE), rng.choice(VESSELS)
-        return f"{e} {v}", (e, v)                  # "delirium carnival", "oblivion observatory"
-    m, y = rng.choice(MATTER), rng.choice(YEARS)   # matter anchored to a year -> temporal drift
-    return f"{m} {y}", (m,)                        # "amber 1931" (only the matter is a tag)
+# ── the walk: corpus-fed, relation-first ─────────────────────────────────────
+# The old drift grammar jammed two independent random draws together ("salt vessel").
+# Two orthogonal dice can only ever be arbitrary — interesting for ~10 posts, noise
+# after. These modes instead LIFT pre-composed phrases (relation baked in by whoever
+# named the object) or combine atoms through connective grammar, never bare noun-noun.
+
+_CURATED_WORDS = POLYSEMOUS + EVOCATIVE + MATTER      # single-word fodder + graft swaps
+_WORD_BUCKET = {w: mt for mt, ws in META_TOPICS.items() for w in ws}
+
+# Frame templates assert a RELATION (the vessel stained BY / immersed IN the matter),
+# not a collision. Kept short so the topic still retrieves on the current scrapers.
+_FRAMES = ["{m}-stained {v}", "{m}-eaten {v}", "{m}-flecked {v}",
+           "{v} in {m}", "{v} of {m}", "{v} under {m}"]
 
 
-def build_drift(rng: random.Random) -> Experiment:
-    """The walk: evocative, polysemous, half-surreal seeds that make the system drift."""
-    topic, parts = _drift_pick(rng)
-    return Experiment("drift", "drift", [Shot(topic=topic, density="dense", meta_topics=(), tags=parts)])
+@dataclass
+class WalkContext:
+    """Everything the picker needs beyond dice. Assembled by the caller from the
+    corpus (entropy), the ledger (anti-repeat + feedback), and steer (direction),
+    so this module stays pure and testable — it never does I/O itself."""
+    corpus: Corpus = field(default_factory=Corpus)
+    recent: frozenset[str] = frozenset()            # lowercased topics to avoid
+    mode_weights: dict[str, float] = field(default_factory=dict)  # feedback: mode -> multiplier
+    source_weights: dict[str, float] = field(default_factory=dict)  # feedback: source -> multiplier
+    shape_saturation: dict[str, float] = field(default_factory=dict)  # shape -> recent share
+    source_bias: dict[str, float] = field(default_factory=dict)   # steer: corpus source -> weight
+    pinned: tuple[str, ...] = ()                     # steer: seed words to lean on
+
+
+def topic_shape(topic: str) -> str:
+    """The topic's form: content-word count, and whether it keeps its connectives.
+
+    "salt vessel"            -> bare-2w
+    "rock of hautepierre"    -> composed-2w
+    "storage jar with bands" -> composed-3w
+
+    Shape is the axis the walk was blind to. Per-mode feedback cannot see that lift,
+    graft and frame were all emitting two-word combos at once — the sameness is spread
+    across modes, so only a shape bucket catches it. Bare and composed are separate
+    buckets because they are what actually differ to a reader: a bare pair is two dice,
+    a composed one states a relation.
+    """
+    words = topic.split()
+    n = sum(1 for w in words if w.lower() not in CONNECTORS)
+    kind = "composed" if any(w.lower() in CONNECTORS for w in words) else "bare"
+    return f"{kind}-{min(n, 4)}w" + ("+" if n >= 4 else "")
+
+
+def content_words(phrase: str) -> tuple[str, ...]:
+    """The taggable words of a phrase — connectors make useless tags (#of, #the)."""
+    return tuple(w for w in phrase.split() if w.lower() not in CONNECTORS)
+
+
+def _bucket_of(word: str) -> tuple[str, ...]:
+    b = _WORD_BUCKET.get(word)
+    return (b,) if b else ()
+
+
+def _corpus_words(ctx: WalkContext) -> list[str]:
+    return ctx.corpus.words or []
+
+
+def _word(rng: random.Random, ctx: WalkContext, base: list[str], pinned_p: float) -> str:
+    """Draw a word, giving injected steer-seeds a strong chance so a direction is
+    actually felt (but never total — the exploration floor still fires unsteered picks)."""
+    if ctx.pinned and rng.random() < pinned_p:
+        return rng.choice(ctx.pinned)
+    return rng.choice(base or ctx.pinned or ["ephemera"])
+
+
+def _pick_word(rng: random.Random, ctx: WalkContext) -> str:
+    """A single evocative word: pinned steer-seeds, corpus harvest, curated pools."""
+    return _word(rng, ctx, _corpus_words(ctx) + list(_CURATED_WORDS), pinned_p=0.5)
+
+
+def _pick_phrase(rng: random.Random, ctx: WalkContext) -> tuple[str, str] | None:
+    """A pre-composed phrase as (phrase, source), honoring steer bias AND how each
+    source has been landing. None if the corpus has none."""
+    srcs = [s for s, ph in ctx.corpus.by_source.items() if ph]
+    if srcs:
+        weights = [max(0.0, ctx.source_bias.get(s, 1.0)) * ctx.source_weights.get(s, 1.0)
+                   for s in srcs]
+        if sum(weights) <= 0:
+            weights = [1.0] * len(srcs)
+        src = rng.choices(srcs, weights=weights, k=1)[0]
+        pool = ctx.corpus.by_source.get(src) or ctx.corpus.phrases
+    else:
+        src, pool = "", ctx.corpus.phrases
+    return (rng.choice(pool), src) if pool else None
+
+
+def build_single(rng: random.Random, ctx: WalkContext) -> Experiment:
+    """One evocative word — the purest mode, no collision possible. Optionally + year."""
+    word = _pick_word(rng, ctx)
+    topic = f"{word} {rng.choice(YEARS)}" if rng.random() < 0.35 else word
+    return Experiment("single", "single",
+                      [Shot(topic=topic, density="dense", meta_topics=_bucket_of(word), tags=(word,))])
+
+
+def build_lift(rng: random.Random, ctx: WalkContext) -> Experiment:
+    """The spine: a coherent phrase lifted whole from an exogenous corpus.
+
+    Prefers a phrase that keeps its connectors ("storage jar with horizontal bands")
+    over a bare two-word chunk — the connectors carry the relation a cataloguer
+    composed, which is the whole reason lifting beats recombining.
+    """
+    picked = _pick_phrase(rng, ctx)
+    if not picked:
+        return build_single(rng, ctx)               # empty/offline corpus fallback
+    phrase, src = picked
+    if not _is_composed(phrase):                    # one re-draw toward the richer shape
+        alt = _pick_phrase(rng, ctx)
+        if alt and _is_composed(alt[0]):
+            phrase, src = alt
+    return Experiment("lift", "lift",
+                      [Shot(topic=phrase, density="dense", meta_topics=(),
+                            tags=content_words(phrase), source=src)])
+
+
+def build_graft(rng: random.Random, ctx: WalkContext) -> Experiment:
+    """One controlled degree of surprise: lift a phrase, swap exactly one CONTENT word.
+
+    Gated to phrases of 3+ content words. Swapping one word of a two-word phrase
+    destroys half the composed relation and leaves exactly the arbitrary noun-noun
+    collision this module exists to avoid — at 3+ words, enough structure survives
+    for the swap to read as a mutation rather than a dice roll.
+    """
+    picked = _pick_phrase(rng, ctx)
+    if not picked or len(content_words(picked[0])) < 3:
+        return build_frame(rng, ctx)
+    phrase, src = picked
+    words = phrase.split()
+    swappable = [i for i, w in enumerate(words) if w.lower() not in CONNECTORS]
+    # Curated NOUN pools only. The corpus harvest is untyped — it's full of adjectives
+    # and participles ("wild", "horned", "enthroned"), and dropping one of those into a
+    # noun slot yields "crozier head with wild enthroned" rather than a mutation.
+    swap_pool = list(MATTER) + list(EVOCATIVE) + list(POLYSEMOUS)
+    words[rng.choice(swappable)] = _word(rng, ctx, swap_pool, pinned_p=0.4)
+    topic = " ".join(words)
+    return Experiment("graft", "graft",
+                      [Shot(topic=topic, density="dense", meta_topics=(),
+                            tags=content_words(topic), source=src)])
+
+
+def _is_composed(phrase: str) -> bool:
+    return any(w.lower() in CONNECTORS for w in phrase.split())
+
+
+def build_frame(rng: random.Random, ctx: WalkContext) -> Experiment:
+    """Combine atoms through connective grammar — a relation, not a collision.
+
+    The material slot draws from MATTER only. Letting arbitrary corpus nouns in
+    breaks the templates' semantics: "rust-eaten cathedral" states a relation,
+    "menagerie under book" and "cathedral of piercing" are just two nouns colliding
+    inside a preposition — the failure the frames were meant to prevent.
+    """
+    m = _word(rng, ctx, list(MATTER), pinned_p=0.35)
+    v = rng.choice(VESSELS)
+    topic = rng.choice(_FRAMES).format(m=m, v=v)
+    return Experiment("frame", "frame",
+                      [Shot(topic=topic, density="dense", meta_topics=(), tags=(m, v))])
 
 
 # ── the infinite engine: random Wikipedia subjects ──────────────────────────
@@ -241,39 +379,101 @@ def build_wander(rng: random.Random) -> Experiment:
     return Experiment("wander", "wander", [Shot(topic=title, density="dense", meta_topics=())])
 
 
-BUILDERS = {
-    "drift": build_drift,
-    "wander": build_wander,
+# Curated structural builders (ctx-free) — variety that was never the "salt vessel"
+# problem, so they stay. build_wander (random Wikipedia) stays available via
+# --experiment but out of the random feed — too square to govern the walk.
+_CURATED_BUILDERS = {
     "specimen": build_specimen,
     "domain-drift": build_domain_drift,
     "seed-series": build_seed_series,
     "density-ladder": build_density_ladder,
     "neutral-zone": build_neutral_zone,
     "diptych": build_diptych,
+    "wander": build_wander,
 }
-
-# drift still carries the walk (pushes the system's edges), but no longer swamps the
-# feed — the curated/structured builders get enough weight to break the monotony.
-# wander (Wikipedia) stays available via --experiment but is out of the random feed —
-# too square to govern the walk.
-WEIGHTS = {
-    "drift": 8,
-    "specimen": 3,
-    "density-ladder": 2,
-    "seed-series": 2,
-    "diptych": 2,
+# Corpus-fed walk builders (take a WalkContext).
+_WALK_BUILDERS = {
+    "single": build_single,
+    "lift": build_lift,
+    "graft": build_graft,
+    "frame": build_frame,
 }
+BUILDERS = {**_CURATED_BUILDERS, **_WALK_BUILDERS}
+
+# Base weights: lift is the spine; single/graft/frame carry the rest of the walk; the
+# curated builders add structural variety. Feedback tilts these; the exploration floor
+# ignores feedback entirely so the space can never collapse onto the optimizer.
+#
+# graft and frame are the two modes that BUILD a topic out of independent draws rather
+# than lifting one, so they're the ones that drift toward arbitrary combos; they're held
+# low and lift (now yielding composed, connector-keeping phrases) carries more.
+BASE_WEIGHTS = {
+    "lift": 7, "single": 4, "graft": 2, "frame": 2,
+    "seed-series": 2, "density-ladder": 2, "diptych": 2, "specimen": 1, "neutral-zone": 1,
+}
+EXPLORATION_FLOOR = 0.4      # fraction of picks that ignore feedback (pure exploration)
+_FEEDBACK_CAP = 3.0          # a mode's feedback multiplier is clamped to [0, cap]
+_ANTI_REPEAT_TRIES = 6
+
+# Shape governor. If more than this share of recent posts had a topic shape, candidates
+# of that shape get resampled — the walk is allowed to favour a shape, not to collapse
+# onto one. Rejection is probabilistic and proportional to the excess, so a saturated
+# shape is thinned rather than banned outright.
+SHAPE_CAP = 0.45
+_SHAPE_MAX_REJECT = 0.8      # never reject more than this share, even at total saturation
 
 
-def build(name: str, rng: random.Random | None = None) -> Experiment:
+def _build_mode(name: str, rng: random.Random, ctx: WalkContext) -> Experiment:
+    if name in _WALK_BUILDERS:
+        return _WALK_BUILDERS[name](rng, ctx)
+    return _CURATED_BUILDERS[name](rng)
+
+
+def build(name: str, rng: random.Random | None = None, ctx: WalkContext | None = None) -> Experiment:
     rng = rng or random.Random()
     if name not in BUILDERS:
         raise KeyError(f"unknown experiment {name!r}; choices: {', '.join(BUILDERS)}")
-    return BUILDERS[name](rng)
+    return _build_mode(name, rng, ctx or WalkContext(corpus=load_corpus()))
 
 
-def pick_experiment(rng: random.Random | None = None) -> Experiment:
+def _is_repeat(exp: Experiment, recent: frozenset[str]) -> bool:
+    return any(s.topic.strip().lower() in recent for s in exp.shots)
+
+
+def _oversaturated(exp: Experiment, saturation: dict[str, float], rng: random.Random) -> bool:
+    """Should this candidate be resampled for being the same shape as everything lately?
+
+    Rejection probability scales with how far past the cap the shape already is, so a
+    shape at 50% is only lightly thinned while one at 90% is nearly always resampled.
+    """
+    if not saturation:
+        return False
+    share = max(saturation.get(topic_shape(s.topic), 0.0) for s in exp.shots)
+    if share <= SHAPE_CAP:
+        return False
+    excess = (share - SHAPE_CAP) / (1.0 - SHAPE_CAP)
+    return rng.random() < excess * _SHAPE_MAX_REJECT
+
+
+def pick_experiment(rng: random.Random | None = None, ctx: WalkContext | None = None) -> Experiment:
+    """Weighted pick with an exploration floor, anti-repeat, and a shape governor.
+    `ctx` carries the corpus, recent-topic set, feedback weights, recent shape mix, and
+    steer bias; defaults to a corpus-only walk."""
     rng = rng or random.Random()
-    names = list(WEIGHTS)
-    name = rng.choices(names, weights=[WEIGHTS[n] for n in names], k=1)[0]
-    return BUILDERS[name](rng)
+    ctx = ctx or WalkContext(corpus=load_corpus())
+    names = list(BASE_WEIGHTS)
+    if rng.random() < EXPLORATION_FLOOR:
+        weights = [BASE_WEIGHTS[n] for n in names]                    # pure exploration
+    else:
+        weights = [BASE_WEIGHTS[n] * min(_FEEDBACK_CAP, max(0.0, ctx.mode_weights.get(n, 1.0)))
+                   for n in names]
+
+    def draw() -> Experiment:
+        return _build_mode(rng.choices(names, weights=weights, k=1)[0], rng, ctx)
+
+    exp = draw()
+    for _ in range(_ANTI_REPEAT_TRIES):     # dodge exact repeats and shape monoculture
+        if not _is_repeat(exp, ctx.recent) and not _oversaturated(exp, ctx.shape_saturation, rng):
+            return exp
+        exp = draw()
+    return exp

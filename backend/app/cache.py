@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 import redis
 
 _client: redis.Redis | None = None
@@ -46,3 +47,43 @@ def get_cached_collage_id(topic: str, density: str | None = None, layout_seed: i
 
 def set_topic_cache(topic: str, job_id: str, density: str | None = None, layout_seed: int | None = None) -> None:
     get_client().setex(_topic_key(topic, density, layout_seed), COLLAGE_TTL, job_id)
+
+
+# ── ledger: durable (NO TTL) private memory for the walker ─────────────────────
+# Stored as a hash (id -> json record) plus a list preserving insertion order.
+# Unlike the collage/job caches above, these keys never expire.
+_LEDGER_RECORDS = "ledger:records"
+_LEDGER_ORDER = "ledger:order"
+
+
+def ledger_append(record: dict) -> dict:
+    rid = record.get("id") or str(uuid.uuid4())
+    record["id"] = rid
+    c = get_client()
+    c.hset(_LEDGER_RECORDS, rid, json.dumps(record))
+    c.rpush(_LEDGER_ORDER, rid)
+    return record
+
+
+def ledger_recent(n: int = 50) -> list[dict]:
+    c = get_client()
+    ids = c.lrange(_LEDGER_ORDER, -n, -1)
+    if not ids:
+        return []
+    return [json.loads(r) for r in c.hmget(_LEDGER_RECORDS, ids) if r]
+
+
+def ledger_update_fate(post_id: str, patch: dict) -> int:
+    """Patch fate fields (state, notes) on every record with this Tumblr post id."""
+    c = get_client()
+    updated = 0
+    for rid in c.lrange(_LEDGER_ORDER, 0, -1):
+        raw = c.hget(_LEDGER_RECORDS, rid)
+        if not raw:
+            continue
+        rec = json.loads(raw)
+        if str(rec.get("post_id")) == str(post_id):
+            rec.update({k: v for k, v in patch.items() if v is not None})
+            c.hset(_LEDGER_RECORDS, rid, json.dumps(rec))
+            updated += 1
+    return updated

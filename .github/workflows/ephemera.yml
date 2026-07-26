@@ -34,6 +34,9 @@ jobs:
       TUMBLR_CONSUMER_SECRET: ${{ secrets.TUMBLR_CONSUMER_SECRET }}
       TUMBLR_OAUTH_TOKEN: ${{ secrets.TUMBLR_OAUTH_TOKEN }}
       TUMBLR_OAUTH_TOKEN_SECRET: ${{ secrets.TUMBLR_OAUTH_TOKEN_SECRET }}
+      # shared secret for the private ledger endpoint on the API (walker memory +
+      # feedback). Must match LEDGER_SECRET set on the backend service.
+      LEDGER_SECRET: ${{ secrets.LEDGER_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,9 +46,21 @@ jobs:
         run: |
           pip install -r app/publisher/requirements.txt
           python -m playwright install --with-deps chromium
+      - name: Refresh corpora (exogenous entropy — museums + patents/poetry)
+        run: python -m app.publisher.publish refresh-corpora
+
+      - name: Sync prior post fates into the ledger (feedback)
+        run: python -m app.publisher.publish sync || true
+
       - name: Walk + post to drafts
         run: |
           python -m app.publisher.publish run \
             --experiment random \
             --count "${{ github.event.inputs.count || '4' }}" \
             --state "${{ github.event.inputs.state || 'draft' }}"
+
+      # Prints the distribution the walk is producing (shape / mode / source) into the
+      # run log, so drift is visible in CI without having to run the CLI locally.
+      - name: Metrics
+        if: always()
+        run: python -m app.publisher.publish metrics || true

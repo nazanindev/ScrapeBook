@@ -1,7 +1,7 @@
 from __future__ import annotations
 from enum import Enum
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import uuid
 
 
@@ -81,3 +81,40 @@ class CollageResponse(BaseModel):
     layout_seed: int | None = None  # the actual composition seed used for this collage
     canvas: CanvasConfig
     fragments: list[Fragment]
+
+
+# ── ledger: the walker's private memory (topics + how each landed) ──────────────
+class LedgerRecord(BaseModel):
+    id: str | None = None            # server-assigned on append
+    topic: str
+    mode: str = ""                   # single | lift | graft | frame | ...
+    source: str = ""                 # corpus source, when known (aic | met | text)
+    shape: str = ""                  # topic form: 1w | 2w | 3w | 4w+ (diversity signal)
+    components: list[str] = Field(default_factory=list)  # the topic's component words
+    tags: list[str] = Field(default_factory=list)
+    ts: float | None = None          # unix time recorded
+    post_id: str | None = None       # Tumblr post id, once posted
+    state: str | None = None         # draft | queue | published | ... (fate)
+    notes: int | None = None         # Tumblr note_count (engagement), back-filled by sync
+
+    # Tumblr returns post ids as JSON numbers, and pydantic v2 does not coerce int -> str.
+    # Without this the whole ledger 422s on every posted record (and the client swallows it).
+    @field_validator("post_id", mode="before")
+    @classmethod
+    def _post_id_to_str(cls, v: Any) -> Any:
+        return str(v) if isinstance(v, int) else v
+
+
+class LedgerRecentResponse(BaseModel):
+    records: list[LedgerRecord]
+
+
+class LedgerFatePatch(BaseModel):
+    post_id: str
+    state: str | None = None
+    notes: int | None = None
+
+    @field_validator("post_id", mode="before")
+    @classmethod
+    def _patch_id_to_str(cls, v: Any) -> Any:
+        return str(v) if isinstance(v, int) else v
