@@ -21,6 +21,7 @@ class Shot:
     meta_topics: tuple[str, ...] = ()
     tags: tuple[str, ...] = ()             # the topic's component parts, e.g. ("still life", "fog")
     source: str = ""                       # corpus source the topic came from (aic | met | cma)
+    note: str = ""                         # caption annotation, e.g. '"fog" → de' on a parallax pair
 
 
 @dataclass
@@ -388,6 +389,109 @@ def build_wander(rng: random.Random) -> Experiment:
     return Experiment("wander", "wander", [Shot(topic=title, density="dense", meta_topics=())])
 
 
+# ── the border crossing: the same concept under another language's name ──────
+# Commons descriptions, Flickr titles and Openverse tags are written in the
+# uploader's language, so "Nebel" and "霧" retrieve material "fog" never sees.
+# Wikipedia langlinks are the keyless translator — human-made and concept-level
+# (article titles, not dictionary lookups). The pipeline is untouched: it just
+# receives a topic that happens not to be in English.
+#
+# Languages picked for scraper yield (large Commons/Flickr communities) and for
+# script variety — a different script shifts the retrieval the furthest.
+_LANGS = {
+    "de": "german", "fr": "french", "es": "spanish", "it": "italian",
+    "nl": "dutch", "pt": "portuguese", "pl": "polish", "sv": "swedish",
+    "cs": "czech", "tr": "turkish", "ru": "russian", "uk": "ukrainian",
+    "el": "greek", "fa": "persian", "ar": "arabic", "hi": "hindi",
+    "ja": "japanese", "zh": "chinese", "ko": "korean",
+}
+_TITLE_MAX = 30
+
+
+def _langlinks(title: str) -> dict[str, str]:
+    """The article's title in every language it exists in; {} on any failure.
+
+    Disambiguation pages are rejected outright: their langlinks point at OTHER
+    disambigs and pop-culture namesakes ("journey" -> the band's katakana title),
+    not at the concept."""
+    try:
+        resp = httpx.get(
+            _WIKI_API,
+            params={"action": "query", "prop": "langlinks|pageprops", "titles": title,
+                    "ppprop": "disambiguation", "redirects": 1, "lllimit": 500,
+                    "format": "json", "formatversion": 2},
+            timeout=10,
+            headers={"User-Agent": _WIKI_UA},
+        )
+        page = (resp.json().get("query", {}).get("pages") or [{}])[0]
+        if "disambiguation" in (page.get("pageprops") or {}):
+            return {}
+        links = page.get("langlinks") or []
+        return {l["lang"]: l["title"].strip() for l in links if l.get("title")}
+    except Exception:
+        return {}
+
+
+def _translations(word: str) -> list[tuple[str, str]]:
+    """(lang code, title) pairs usable as topics. Skips titles that merely re-spell
+    the English word (no retrieval shift), carry disambiguators or punctuation,
+    or run too long to retrieve on the scrapers."""
+    out = []
+    for code, title in _langlinks(word).items():
+        if code not in _LANGS:
+            continue
+        if title.lower() == word.lower() or any(c in title for c in "(/:,"):
+            continue
+        if len(title) > _TITLE_MAX or any(c.isdigit() for c in title):
+            continue
+        out.append((code, title))
+    return out
+
+
+def _pick_translation(rng: random.Random, ctx: WalkContext) -> tuple[str, str, str] | None:
+    """(english word, lang code, foreign title), or None if nothing translates.
+
+    Draws from the concrete-leaning pools — museum-harvest words and curated nouns
+    tend to have Wikipedia articles; abstract coinages mostly don't and just burn
+    a try, so EVOCATIVE stays out of this pool."""
+    pool = _corpus_words(ctx) + list(MATTER) + list(VESSELS) \
+        + [w for ws in META_TOPICS.values() for w in ws]
+    for _ in range(4):
+        word = _word(rng, ctx, pool, pinned_p=0.5)
+        cands = _translations(word)
+        if cands:
+            code, title = rng.choice(cands)
+            return word, code, title
+    return None
+
+
+def build_calque(rng: random.Random, ctx: WalkContext) -> Experiment:
+    """One concept borrowed under another language's name — the scrapers answer in
+    that language's material. The caption stays quiet — the foreign word stands
+    bare; the tags keep the English word and language as the receipts."""
+    picked = _pick_translation(rng, ctx)
+    if not picked:
+        return build_single(rng, ctx)      # Wikipedia offline / nothing translated
+    word, code, title = picked
+    return Experiment("calque", "calque",
+                      [Shot(topic=title, density="dense", meta_topics=_bucket_of(word),
+                            tags=(word, _LANGS[code]))])
+
+
+def build_parallax(rng: random.Random, ctx: WalkContext) -> Experiment:
+    """The same concept posted twice — in English, then in another language. The
+    pair shows how much of a "topic" was really the language it was asked in."""
+    picked = _pick_translation(rng, ctx)
+    if not picked:
+        return build_single(rng, ctx)
+    word, code, title = picked
+    return Experiment("parallax", "parallax", [
+        Shot(topic=word, density="dense", meta_topics=_bucket_of(word), tags=(word,)),
+        Shot(topic=title, density="dense", meta_topics=_bucket_of(word),
+             tags=(word, _LANGS[code]), note=f'"{word}" → {code}'),
+    ])
+
+
 # Curated structural builders (ctx-free) — variety that was never the "salt vessel"
 # problem, so they stay. build_wander (random Wikipedia) stays available via
 # --experiment but out of the random feed — too square to govern the walk.
@@ -406,6 +510,8 @@ _WALK_BUILDERS = {
     "lift": build_lift,
     "graft": build_graft,
     "frame": build_frame,
+    "calque": build_calque,
+    "parallax": build_parallax,
 }
 BUILDERS = {**_CURATED_BUILDERS, **_WALK_BUILDERS}
 
@@ -416,9 +522,12 @@ BUILDERS = {**_CURATED_BUILDERS, **_WALK_BUILDERS}
 # graft and frame are the two modes that BUILD a topic out of independent draws rather
 # than lifting one, so they're the ones that drift toward arbitrary combos; they're held
 # low and lift (now yielding composed, connector-keeping phrases) carries more.
+#
+# calque rides the walk like graft/frame; parallax is a two-post pair, kept rare.
 BASE_WEIGHTS = {
-    "lift": 7, "single": 4, "graft": 2, "frame": 2,
-    "seed-series": 2, "density-ladder": 2, "diptych": 2, "specimen": 1, "neutral-zone": 1,
+    "lift": 7, "single": 4, "graft": 2, "frame": 2, "calque": 2,
+    "seed-series": 2, "density-ladder": 2, "diptych": 2, "specimen": 1,
+    "neutral-zone": 1, "parallax": 1,
 }
 EXPLORATION_FLOOR = 0.4      # fraction of picks that ignore feedback (pure exploration)
 _FEEDBACK_CAP = 3.0          # a mode's feedback multiplier is clamped to [0, cap]

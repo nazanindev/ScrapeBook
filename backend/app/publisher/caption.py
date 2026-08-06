@@ -10,7 +10,9 @@ BRAND_TAGS = ["ephemera", "collage", "digitalcollage", "webweaving"]
 
 # Modes whose topics are phrases/compounds with no Wikipedia article — a semantic_tags
 # lookup just 404s and adds latency/noise. Concrete single-word modes still get it.
-_NO_SEMANTIC = {"drift", "lift", "graft", "frame"}
+# calque/parallax topics are non-English titles: looking them up on EN Wikipedia hits
+# the wrong article or a disambiguation ("Nebel" is a surname page), so they skip too.
+_NO_SEMANTIC = {"drift", "lift", "graft", "frame", "calque", "parallax"}
 
 # substring found in a fragment's source_domain -> the source label we tag.
 _DOMAIN_SOURCES = [
@@ -274,6 +276,14 @@ def build_tags(topic, collage, density, experiment, meta_topics, image_path=None
     return out[:28]  # Tumblr's per-post ceiling is ~30
 
 
-def build_caption(topic, collage, density, experiment=None, meta_topics=(), image_path=None, extra_tags=()) -> tuple[str, list[str]]:
-    caption = f'"{topic}"\n{lab_line(topic, collage, density)}'
+# An RTL topic ("بام") becomes the caption's first strong character, and Tumblr's
+# first-strong detection then lays the whole caption out right-to-left — the lab
+# line's numbers land at the visual far end. The invisible LRM pins the base
+# direction LTR; the topic itself still renders in its own script.
+_LRM = "\u200e"
+
+
+def build_caption(topic, collage, density, experiment=None, meta_topics=(), image_path=None, extra_tags=(), note="") -> tuple[str, list[str]]:
+    head = f'{_LRM}"{topic}"' + (f"\n{note}" if note else "")
+    caption = f'{head}\n{lab_line(topic, collage, density)}'
     return caption, build_tags(topic, collage, density, experiment, meta_topics, image_path, extra_tags)
