@@ -17,6 +17,16 @@
 <body>
   <div id="prompt-screen">
     <div id="prompt-wrap">
+      <span class="cw-badge">
+        <span class="cw-label">15+</span>
+        <div class="cw-info">
+          <p>✦ this tool is usually not graphic</p>
+          <p>✦ it pulls images from a lot of places, including declassified government archives, so a normal search can sometimes turn up something graphic</p>
+          <p>✦ that's more likely with dates or events like "2001," "Vietnam," or "Chernobyl"</p>
+          <p>✦ moods, colors, or decades are more likely to pull safer images</p>
+          <p>✦ if you're under 15, proceed with a parent or guardian</p>
+        </div>
+      </span>
       <div id="prompt-row">
         <input id="topic-input" type="text" placeholder="a topic, a feeling, a year..." autocomplete="off" spellcheck="false" />
         <button id="generate-btn">generate</button>
@@ -34,12 +44,41 @@
 
   <div id="canvas-screen" hidden>
     <div id="canvas"></div>
-    <div id="btn-row">
-      <button id="reset-btn">↩ new topic</button>
-      <button id="rearrange-btn">⇄ rearrange</button>
-      <button id="export-btn">↓ save png</button>
+    <div id="btn-col">
+      <span class="cw-badge">
+        <span class="cw-label">15+</span>
+        <div class="cw-info">
+          <p>✦ this tool is usually not graphic</p>
+          <p>✦ it pulls images from a lot of places, including declassified government archives, so a normal search can sometimes turn up something graphic</p>
+          <p>✦ that's more likely with dates or events like "2001," "Vietnam," or "Chernobyl"</p>
+          <p>✦ moods, colors, or decades are more likely to pull safer images</p>
+          <p>✦ if you're under 15, proceed with a parent or guardian</p>
+        </div>
+      </span>
+      <div id="btn-row">
+        <button id="reset-btn">↩ new topic</button>
+        <button id="rearrange-btn">⇄ rearrange</button>
+        <button id="export-btn">↓ save png</button>
+      </div>
     </div>
   </div>
+
+  <script>
+    (function () {
+      document.querySelectorAll(".cw-label").forEach(function (label) {
+        label.addEventListener("click", function (e) {
+          e.stopPropagation();
+          var badge = label.closest(".cw-badge");
+          var wasOpen = badge.classList.contains("open");
+          document.querySelectorAll(".cw-badge.open").forEach(function (b) { b.classList.remove("open"); });
+          if (!wasOpen) badge.classList.add("open");
+        });
+      });
+      document.addEventListener("click", function () {
+        document.querySelectorAll(".cw-badge.open").forEach(function (b) { b.classList.remove("open"); });
+      });
+    })();
+  </script>
 
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script>window.EPHEMERA_API_URL = "$EPHEMERA_API_URL";</script>
