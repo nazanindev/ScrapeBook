@@ -269,7 +269,7 @@ def cmd_sync(settings: Settings, args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ephemera", description="post Ephemera specimens to Tumblr")
     sub = parser.add_subparsers(dest="command", required=True)
-    modes = "lift | single | graft | frame | calque | parallax | seed-series | density-ladder | diptych | specimen | wander | random"
+    modes = "lift | single | graft | frame | calque | parallax | atlas | seed-series | density-ladder | diptych | specimen | wander | random"
 
     p_verify = sub.add_parser("verify", help="check Tumblr credentials + ledger/corpus status")
     p_verify.set_defaults(func=cmd_verify)

@@ -47,8 +47,33 @@ META_TOPICS: dict[str, list[str]] = {
 }
 
 QUALIFIERS = [
-    "at night", "in winter", "operators", "interior", "abandoned", "under snow",
-    "by lamplight", "from above", "in fog", "diagram",
+    "at night", "at dawn", "at dusk", "at low tide", "at high tide", "at midnight",
+    "at noon", "at sunrise", "at sunset",
+    "in winter", "in fog", "in storm", "in bloom", "in ruins", "in transit",
+    "in drizzle", "in eclipse",
+    "under snow", "under glass", "under floodlight", "under construction",
+    "under tarpaulin", "under scaffolding", "under restoration", "under ice",
+    "by lamplight", "by moonlight", "by candlelight", "by torchlight",
+    "by starlight", "by gaslight", "by firelight", "by streetlight",
+    "from above", "from below", "from afar", "from memory", "from orbit",
+    "from storage", "from exile", "from obscurity",
+    "on fire", "on ice", "on display", "on loan", "on hold", "on standby",
+    "on film", "on tour",
+    "over water", "over rooftops", "over snowfields", "over ashes",
+    "over wreckage", "over embers", "over drift", "over horizon",
+    "with frost", "with rust", "with moss", "with cobwebs", "with patina",
+    "with mildew", "with soot", "with ivy",
+    "after hours", "after dark", "after closing", "after curfew",
+    "after sundown", "after harvest", "after auction", "after departure",
+    "before dawn", "before opening", "before departure", "before restoration",
+    "before sunrise", "before arrival", "before auction", "before inventory",
+    "near extinction", "near collapse", "near ruin", "near silence",
+    "near capacity", "near closure", "near completion", "near shore",
+    "behind glass", "behind curtains", "behind scaffolding", "behind canvas",
+    "behind velvet", "behind smoke", "behind floodlight", "behind screens",
+    "operators", "interior", "abandoned", "diagram", "unfinished",
+    "decommissioned", "quarantined", "flooded", "condemned", "restored",
+    "relocated", "dismantled", "mothballed", "repurposed",
 ]
 YEARS = [str(y) for y in range(1890, 1979)]
 # Single words that fan out across unrelated domains (no single meta-topic).
@@ -84,6 +109,22 @@ VESSELS = [
     "aviary", "orangery", "crypt", "belfry", "granary", "arboretum", "atrium",
 ]
 
+# ── atlas: cities, biased toward evocative/lesser-photographed over the usual
+# mega-tourist set (which already dominates Commons/museum scrapes elsewhere) ──
+CITIES = [
+    "Marrakesh", "Fez", "Tangier", "Zanzibar City", "Lagos", "Accra", "Dakar",
+    "Nairobi", "Addis Ababa", "Asmara", "Alexandria", "Isfahan", "Shiraz",
+    "Samarkand", "Bukhara", "Tbilisi", "Yerevan", "Baku", "Istanbul",
+    "Thessaloniki", "Sarajevo", "Dubrovnik", "Ljubljana", "Kraków", "Gdańsk",
+    "Riga", "Vilnius", "Tallinn", "Reykjavik", "Bergen", "Porto", "Seville",
+    "Granada", "Palermo", "Trieste", "Kyoto", "Nara", "Kanazawa", "Busan",
+    "Hoi An", "Luang Prabang", "Chiang Mai", "Yangon", "Varanasi", "Jaipur",
+    "Colombo", "Kathmandu", "Ulaanbaatar", "Vladivostok", "Irkutsk",
+    "Valparaíso", "Cusco", "Cartagena", "Oaxaca", "Mérida", "Havana",
+    "Salvador", "Ouro Preto", "Montevideo", "La Paz", "Quito", "Wellington",
+    "Hobart", "Darwin", "Suva",
+]
+
 
 def _seed(rng: random.Random) -> int:
     return rng.randint(0, 2**31 - 1)
@@ -95,7 +136,8 @@ def _pick_meta(rng: random.Random) -> tuple[str, str]:
     return mt, rng.choice(META_TOPICS[mt])
 
 
-_QUAL_PREPS = ("in ", "at ", "under ", "by ", "from ", "on ", "over ")
+_QUAL_PREPS = ("in ", "at ", "under ", "by ", "from ", "on ", "over ",
+               "with ", "after ", "before ", "near ", "behind ")
 
 
 def _qual_tag(qual: str) -> str:
@@ -492,9 +534,26 @@ def build_parallax(rng: random.Random, ctx: WalkContext) -> Experiment:
     ])
 
 
+def build_atlas(rng: random.Random) -> Experiment:
+    """The parallax trick aimed at geography: a city, posted in English, then again
+    under its own place's name for a language with a Wikipedia article on it. Draws
+    from a curated CITIES pool (not the corpus) so it's ctx-free like wander — and
+    biased toward the evocative/lesser-scraped over the usual tourist-postcard set.
+    Falls back to a single English post if nothing translates."""
+    city = rng.choice(CITIES)
+    cands = _translations(city)
+    if not cands:
+        return Experiment("atlas", "atlas", [Shot(topic=city, density="dense", tags=(city,))])
+    code, title = rng.choice(cands)
+    return Experiment("atlas", "atlas", [
+        Shot(topic=city, density="dense", tags=(city,)),
+        Shot(topic=title, density="dense", tags=(city, _LANGS[code]), note=f'"{city}" → {code}'),
+    ])
+
+
 # Curated structural builders (ctx-free) — variety that was never the "salt vessel"
-# problem, so they stay. build_wander (random Wikipedia) stays available via
-# --experiment but out of the random feed — too square to govern the walk.
+# problem, so they stay. domain-drift stays available via --experiment but out of
+# the random feed — too square to govern the walk on its own.
 _CURATED_BUILDERS = {
     "specimen": build_specimen,
     "domain-drift": build_domain_drift,
@@ -503,6 +562,7 @@ _CURATED_BUILDERS = {
     "neutral-zone": build_neutral_zone,
     "diptych": build_diptych,
     "wander": build_wander,
+    "atlas": build_atlas,
 }
 # Corpus-fed walk builders (take a WalkContext).
 _WALK_BUILDERS = {
@@ -524,10 +584,14 @@ BUILDERS = {**_CURATED_BUILDERS, **_WALK_BUILDERS}
 # low and lift (now yielding composed, connector-keeping phrases) carries more.
 #
 # calque rides the walk like graft/frame; parallax is a two-post pair, kept rare.
+#
+# wander (random Wikipedia subject) and atlas (a city, paired parallax-style with its
+# local-language name) are both unbounded/serendipitous rather than corpus-fed, so
+# they're kept at parallax-rarity too.
 BASE_WEIGHTS = {
     "lift": 7, "single": 4, "graft": 2, "frame": 2, "calque": 2,
     "seed-series": 2, "density-ladder": 2, "diptych": 2, "specimen": 1,
-    "neutral-zone": 1, "parallax": 1,
+    "neutral-zone": 1, "parallax": 1, "wander": 1, "atlas": 1,
 }
 EXPLORATION_FLOOR = 0.4      # fraction of picks that ignore feedback (pure exploration)
 _FEEDBACK_CAP = 3.0          # a mode's feedback multiplier is clamped to [0, cap]
