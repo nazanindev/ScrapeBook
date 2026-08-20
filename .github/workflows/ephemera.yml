@@ -10,8 +10,8 @@ on:
       count:
         description: "how many experiment runs"
         type: choice
-        default: "4"
-        options: ["1", "2", "4", "6", "10"]
+        default: "8"
+        options: ["1", "2", "4", "8", "12", "16"]
       state:
         description: "where the posts land"
         type: choice
@@ -56,7 +56,7 @@ jobs:
         run: |
           python -m app.publisher.publish run \
             --experiment random \
-            --count "${{ github.event.inputs.count || '4' }}" \
+            --count "${{ github.event.inputs.count || '8' }}" \
             --state "${{ github.event.inputs.state || 'draft' }}"
 
       # Prints the distribution the walk is producing (shape / mode / source) into the

@@ -56,6 +56,11 @@ def _walk_context(settings: Settings) -> WalkContext:
     return WalkContext(
         corpus=corpora.load(),
         recent=ledger_mod.recent_topics(records),
+        # pinned steer-seeds are exempt: an explicit "lean on this" should not be
+        # thinned by the word-level anti-repeat it would otherwise trip every post
+        recent_words=ledger_mod.recent_words(records)
+        - frozenset(w.strip().lower() for w in direction.pinned),
+        recent_modes=ledger_mod.recent_modes(records),
         mode_weights=ledger_mod.feedback_weights(records),
         source_weights=ledger_mod.source_weights(records),
         shape_saturation=ledger_mod.shape_saturation(records),
@@ -139,7 +144,11 @@ def cmd_run(settings: Settings, args) -> int:
         topics = [t.strip() for t in re.split(r"[;\n]", args.topics) if t.strip()]
         runs = [Experiment(args.tag, args.tag, [Shot(topic=t, density="dense")]) for t in topics]
     else:
-        runs = [_resolve_experiment(args.experiment, rng, ctx) for _ in range(args.count)]
+        runs = []
+        for _ in range(args.count):
+            exp = _resolve_experiment(args.experiment, rng, ctx)
+            runs.append(exp)
+            ctx = exp_mod.note_pick(ctx, exp)   # later picks see this batch's earlier ones
 
     posted = 0
     for n, exp in enumerate(runs):

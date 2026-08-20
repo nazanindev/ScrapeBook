@@ -87,6 +87,29 @@ def recent_topics(records: list[dict]) -> frozenset[str]:
     return frozenset(r["topic"].strip().lower() for r in records if r.get("topic"))
 
 
+def recent_words(records: list[dict], window: int = 60) -> frozenset[str]:
+    """Lowercased seed words (recorded components) from the last `window` records.
+
+    The window is deliberately short: the full history would blanket the curated
+    pools and turn word-level anti-repeat into a permanent no-op, while ~60 posts
+    (about 5-6 days at count=8) is long enough that no seed word can headline
+    twice in quick succession. Multi-word components count both whole and
+    per-token, so "still life" blocks itself either way it resurfaces."""
+    words: set[str] = set()
+    for r in records[-window:]:
+        for c in r.get("components") or []:
+            c = c.strip().lower()
+            if c:
+                words.add(c)
+                words.update(c.split())
+    return frozenset(words)
+
+
+def recent_modes(records: list[dict]) -> tuple[str, ...]:
+    """Modes of the recorded posts, oldest -> newest — feeds the mode cooldown."""
+    return tuple(r["mode"] for r in records if r.get("mode"))
+
+
 def _reward(record: dict) -> float:
     """How well one post landed. Publishing is the curation signal — the walk posts to
     drafts and you promote the keepers by hand — so it carries most of the weight;

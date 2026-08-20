@@ -6,7 +6,7 @@ Biased toward dense collages.
 """
 from __future__ import annotations
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import httpx
 
@@ -34,16 +34,65 @@ class Experiment:
 # ── meta-topic buckets: bucket -> seed words (every specimen carries its bucket) ──
 # Each word lives in exactly one bucket so the meta-topic tag is unambiguous.
 META_TOPICS: dict[str, list[str]] = {
-    "history": ["almanac", "ledger", "census", "chronicle", "gazette", "archive"],
-    "nature": ["fog", "glacier", "tide", "orchard", "moth", "marsh", "moss", "frost", "estuary"],
-    "science": ["observatory", "telescope", "greenhouse", "specimen", "barometer", "microscope", "herbarium"],
-    "art": ["fresco", "engraving", "mosaic", "portrait", "still life", "etching", "tapestry"],
-    "culture": ["carnival", "festival", "arcade", "fairground", "vaudeville", "phonograph", "sideshow", "waxworks"],
-    "architecture": ["lighthouse", "aqueduct", "rotunda", "pavilion", "stairwell", "bandstand", "facade", "colonnade"],
-    "transport": ["tram", "canal", "railway", "harbor", "ferry", "locomotive", "dirigible", "funicular"],
-    "communication": ["telegraph", "switchboard", "telephone", "radio", "typewriter", "transmitter", "teleprinter"],
-    "ritual": ["procession", "masquerade", "shrine", "pilgrimage", "maypole", "vigil", "requiem"],
-    "industry": ["loom", "kiln", "foundry", "mill", "cannery", "colliery", "printing press"],
+    "history": ["almanac", "ledger", "census", "chronicle", "gazette", "archive",
+                "manuscript", "parchment", "charter", "decree", "proclamation",
+                "broadside", "folio", "dispatch", "registry",
+                "codex", "edict", "treaty", "deed", "testament", "indenture",
+                "gazetteer", "annals", "obituary", "pamphlet", "circular",
+                "memorandum", "docket", "ordinance", "missive"],
+    "nature": ["fog", "glacier", "tide", "orchard", "moth", "marsh", "moss", "frost", "estuary",
+               "heath", "thicket", "lagoon", "dune", "fjord", "meadow", "grove",
+               "ravine", "tundra", "bog", "fen", "bramble", "copse", "reef",
+               "atoll", "geyser", "moraine", "floodplain", "salt flat",
+               "riverbank", "undergrowth"],
+    "science": ["observatory", "telescope", "greenhouse", "specimen", "barometer", "microscope", "herbarium",
+                "laboratory", "seismograph", "sundial", "orrery", "astrolabe",
+                "sextant", "pendulum", "apothecary",
+                "alembic", "centrifuge", "chronometer", "hygrometer", "theodolite",
+                "vivarium", "terrarium", "bell jar", "retort", "gyroscope",
+                "magnetometer", "spectroscope", "anemometer", "phial", "taxidermy"],
+    "art": ["fresco", "engraving", "mosaic", "portrait", "still life", "etching", "tapestry",
+            "lithograph", "woodcut", "daguerreotype", "triptych", "watercolor",
+            "gilding", "stained glass", "sculpture",
+            "gouache", "pastel", "mezzotint", "aquatint", "intaglio", "cameo",
+            "filigree", "marquetry", "silhouette", "miniature", "frontispiece",
+            "illumination", "bas-relief", "plaster cast", "statuette"],
+    "culture": ["carnival", "festival", "arcade", "fairground", "vaudeville", "phonograph", "sideshow", "waxworks",
+                "cabaret", "ballroom", "marionette", "pantomime", "music hall",
+                "gramophone", "matinee",
+                "operetta", "burlesque", "carousel", "ventriloquist", "nickelodeon",
+                "tightrope", "acrobat", "ringmaster", "zoetrope", "magic lantern",
+                "kinetoscope", "phantasmagoria", "promenade", "gala", "revue"],
+    "architecture": ["lighthouse", "aqueduct", "rotunda", "pavilion", "stairwell", "bandstand", "facade", "colonnade",
+                     "cupola", "portico", "balustrade", "archway", "spire",
+                     "cloister", "veranda",
+                     "buttress", "gable", "turret", "parapet", "alcove",
+                     "vestibule", "mezzanine", "dome", "minaret", "obelisk",
+                     "pergola", "terrace", "courtyard", "dormer", "transept"],
+    "transport": ["tram", "canal", "railway", "harbor", "ferry", "locomotive", "dirigible", "funicular",
+                  "steamship", "gondola", "carriage", "barge", "viaduct",
+                  "zeppelin", "caravan",
+                  "stagecoach", "rickshaw", "trolleybus", "monorail", "tugboat",
+                  "schooner", "clipper", "icebreaker", "cable car", "drawbridge",
+                  "roundhouse", "railcar", "omnibus", "sidecar", "velocipede"],
+    "communication": ["telegraph", "switchboard", "telephone", "radio", "typewriter", "transmitter", "teleprinter",
+                      "semaphore", "postcard", "antenna", "wireless", "postmark",
+                      "heliograph", "pneumatic tube",
+                      "morse code", "carrier pigeon", "mailbag", "stenograph",
+                      "dictaphone", "megaphone", "loudspeaker", "intercom",
+                      "shortwave", "telegram", "envelope", "inkwell",
+                      "ticker tape", "signal lamp", "courier", "radiogram"],
+    "ritual": ["procession", "masquerade", "shrine", "pilgrimage", "maypole", "vigil", "requiem",
+               "incense", "litany", "benediction", "seance", "effigy", "censer", "hymnal",
+               "offering", "libation", "rosary", "talisman", "amulet", "votive",
+               "ex-voto", "wreath", "bonfire", "divination", "incantation",
+               "eulogy", "sacrament", "pageant", "altarpiece", "mourning"],
+    "industry": ["loom", "kiln", "foundry", "mill", "cannery", "colliery", "printing press",
+                 "forge", "quarry", "tannery", "brewery", "sawmill", "warehouse",
+                 "shipyard", "distillery",
+                 "smelter", "blast furnace", "cooperage", "glassworks", "ironworks",
+                 "brickyard", "ropewalk", "gristmill", "assembly line", "derrick",
+                 "crucible", "anvil", "bellows", "lathe", "refinery"],
 }
 
 QUALIFIERS = [
@@ -75,11 +124,14 @@ QUALIFIERS = [
     "decommissioned", "quarantined", "flooded", "condemned", "restored",
     "relocated", "dismantled", "mothballed", "repurposed",
 ]
-YEARS = [str(y) for y in range(1890, 1979)]
+YEARS = [str(y) for y in range(1850, 2027)]
 # Single words that fan out across unrelated domains (no single meta-topic).
 AMBIGUOUS = [
     "mercury", "delta", "apollo", "saturn", "phoenix", "amazon", "java", "titan",
     "iris", "atlas", "nova", "echo", "vega", "orion", "sable",
+    "juno", "neptune", "jupiter", "luna", "aurora", "pandora", "sphinx",
+    "meridian", "zenith", "polaris", "hudson", "congo", "geneva", "columbia",
+    "valencia",
 ]
 
 # ── drift: evocative / polysemous / half-surreal seeds that push the system's edges ──
@@ -89,24 +141,46 @@ POLYSEMOUS = [
     "mirror", "needle", "crown", "vault", "tongue", "compass", "prism", "static",
     "plate", "band", "capital", "organ", "temple", "pupil", "score", "chord",
     "wake", "spring", "grain", "circuit", "spine", "cell",
+    "anchor", "key", "bell", "crane", "scale", "conductor", "terminal",
+    "cabinet", "chamber", "column", "draft", "seal", "palm", "bark", "staff",
+    "note", "press",
 ]
 EVOCATIVE = [
     "vertigo", "mirage", "reverie", "oblivion", "trance", "rupture", "decay",
     "hush", "fever", "halo", "eclipse", "threshold", "undertow", "delirium",
     "longing", "aftermath", "solstice", "penumbra", "murmur", "vestige",
     "afterglow", "torpor", "swoon", "duskfall", "stupor", "hollow", "quietude",
+    "elegy", "lament", "nocturne", "overture", "interlude", "phantom",
+    "apparition", "twilight", "gloaming", "midsummer", "equinox", "eventide",
+    "melancholy", "nostalgia", "resonance", "dissolution", "vanishing",
+    "absence", "stillness", "slumber", "daydream", "fugue", "omen",
 ]
 MATTER = [
     "rust", "salt", "ash", "glass", "copper", "neon", "velvet", "smoke", "amber",
     "tar", "chrome", "bone", "wax", "ivory", "obsidian",
     "porcelain", "granite", "lichen", "cinder", "brass", "resin", "graphite",
     "slate", "quartz", "vellum", "silt", "coal", "soot",
+    "iron", "tin", "pewter", "bronze", "marble", "limestone", "sandstone", "lead",
+    "enamel", "lacquer", "indigo", "ochre", "sepia", "verdigris", "tallow",
+    "pitch", "chalk", "clay", "terracotta", "alabaster", "mica", "linen",
+    "nickel", "cobalt", "gilt", "mahogany", "ebony", "driftwood", "cork",
+    "leather", "felt", "burlap", "muslin", "gauze", "brocade", "mother-of-pearl",
+    "tortoiseshell", "whalebone", "horsehair", "beeswax", "charcoal", "plaster",
+    "mortar", "basalt", "flint", "pumice", "gypsum",
 ]
 VESSELS = [
     "cathedral", "ruin", "engine", "machine", "garden", "opera", "circus", "asylum",
     "observatory", "reliquary", "mausoleum", "carnival", "altar", "menagerie",
     "conservatory", "amphitheatre", "clocktower", "sanatorium", "planetarium",
     "aviary", "orangery", "crypt", "belfry", "granary", "arboretum", "atrium",
+    "monastery", "citadel", "catacomb", "apiary", "pagoda", "ossuary", "gazebo",
+    "grotto", "labyrinth", "fountain", "chapel", "boathouse", "watchtower",
+    "hippodrome", "bathhouse", "windmill", "silo", "depot", "arsenal",
+    "velodrome", "athenaeum", "gasworks", "icehouse", "scriptorium",
+    "bazaar", "market hall", "custom house", "mint", "courthouse", "armory",
+    "barracks", "fortress", "manor", "cottage", "farmhouse", "stable",
+    "dovecote", "wharf", "pier", "quay", "breakwater", "boardwalk",
+    "reservoir", "cistern", "teahouse", "tavern", "inn", "infirmary", "solarium",
 ]
 
 # ── atlas: cities, biased toward evocative/lesser-photographed over the usual
@@ -123,6 +197,12 @@ CITIES = [
     "Valparaíso", "Cusco", "Cartagena", "Oaxaca", "Mérida", "Havana",
     "Salvador", "Ouro Preto", "Montevideo", "La Paz", "Quito", "Wellington",
     "Hobart", "Darwin", "Suva",
+    "Timbuktu", "Mombasa", "Khartoum", "Tunis", "Algiers", "Beirut", "Aleppo",
+    "Muscat", "Tashkent", "Almaty", "Lahore", "Mandalay", "Phnom Penh",
+    "Vientiane", "Surabaya", "Tainan", "Sapporo", "Harbin", "Qingdao",
+    "Batumi", "Odesa", "Plovdiv", "Mostar", "Kotor", "Sibiu", "Lviv",
+    "Kaunas", "Trondheim", "Bruges", "Leipzig", "Dresden", "Salzburg",
+    "Coimbra", "Genoa", "Bologna",
 ]
 
 
@@ -164,13 +244,16 @@ def build_domain_drift(rng: random.Random) -> Experiment:
 
 
 def build_seed_series(rng: random.Random) -> Experiment:
-    """One prompt, N layout seeds — same fragments, different dice. Grouped by the topic tag."""
+    """One prompt, two layout seeds — same fragments, different dice. Grouped by the topic tag.
+
+    Two shots, not three: a pair reads as "same fragments, different dice"; a third
+    re-roll of the identical topic just pads the feed with near-duplicates."""
     mt, word = _pick_meta(rng)
     qual = rng.choice(QUALIFIERS)
     topic = f"{word} {qual}"
     parts = (word, _qual_tag(qual))
     shots = [Shot(topic=topic, density="dense", layout_seed=_seed(rng), meta_topics=(mt,), tags=parts)
-             for _ in range(3)]
+             for _ in range(2)]
     return Experiment("seed series", "seed-series", shots)
 
 
@@ -231,11 +314,26 @@ class WalkContext:
     so this module stays pure and testable — it never does I/O itself."""
     corpus: Corpus = field(default_factory=Corpus)
     recent: frozenset[str] = frozenset()            # lowercased topics to avoid
+    recent_words: frozenset[str] = frozenset()      # lowercased seed words to avoid (short window)
+    recent_modes: tuple[str, ...] = ()              # modes of recent records, oldest -> newest
     mode_weights: dict[str, float] = field(default_factory=dict)  # feedback: mode -> multiplier
     source_weights: dict[str, float] = field(default_factory=dict)  # feedback: source -> multiplier
     shape_saturation: dict[str, float] = field(default_factory=dict)  # shape -> recent share
     source_bias: dict[str, float] = field(default_factory=dict)   # steer: corpus source -> weight
     pinned: tuple[str, ...] = ()                     # steer: seed words to lean on
+
+
+def note_pick(ctx: WalkContext, exp: Experiment) -> WalkContext:
+    """Fold a just-picked experiment back into the context, so later picks in the
+    SAME batch see it. The ledger only reflects past runs — without this, a
+    `--count 4` batch draws all four from one snapshot and the cooldown and
+    anti-repeat are blind to their own batch-mates."""
+    return replace(
+        ctx,
+        recent=ctx.recent | {s.topic.strip().lower() for s in exp.shots},
+        recent_words=ctx.recent_words | {t.strip().lower() for s in exp.shots for t in s.tags},
+        recent_modes=ctx.recent_modes + (exp.tag,) * len(exp.shots),
+    )
 
 
 def topic_shape(topic: str) -> str:
@@ -588,11 +686,19 @@ BUILDERS = {**_CURATED_BUILDERS, **_WALK_BUILDERS}
 # wander (random Wikipedia subject) and atlas (a city, paired parallax-style with its
 # local-language name) are both unbounded/serendipitous rather than corpus-fed, so
 # they're kept at parallax-rarity too.
+#
+# seed-series and density-ladder are the multi-shot "same word again" modes: low
+# weight AND a cooldown (below), so they read as an occasional bit, not a habit.
 BASE_WEIGHTS = {
     "lift": 7, "single": 4, "graft": 2, "frame": 2, "calque": 2,
-    "seed-series": 2, "density-ladder": 2, "diptych": 2, "specimen": 1,
+    "seed-series": 1, "density-ladder": 1, "diptych": 2, "specimen": 1,
     "neutral-zone": 1, "parallax": 1, "wander": 1, "atlas": 1,
 }
+# Multi-shot curated modes are a treat, not a staple: after one runs, it sits out
+# this many subsequent ledger RECORDS (posts, not days — the walker currently lands
+# ~9-12 records/day at count=8, so 70 ≈ a week). A cooled-down mode's weight is zeroed
+# even during exploration-floor picks; explicit `--experiment <name>` runs are unaffected.
+MODE_COOLDOWN = {"seed-series": 70, "density-ladder": 70}
 EXPLORATION_FLOOR = 0.4      # fraction of picks that ignore feedback (pure exploration)
 _FEEDBACK_CAP = 3.0          # a mode's feedback multiplier is clamped to [0, cap]
 _ANTI_REPEAT_TRIES = 6
@@ -622,6 +728,18 @@ def _is_repeat(exp: Experiment, recent: frozenset[str]) -> bool:
     return any(s.topic.strip().lower() in recent for s in exp.shots)
 
 
+def _word_repeat(exp: Experiment, recent_words: frozenset[str]) -> bool:
+    """Did any of this candidate's seed words already headline a recent post?
+
+    Exact-topic anti-repeat is blind to the word level: "chronicle at dusk",
+    "chronicle 1904" and "chronicle in fog" are all distinct topics, so a seed
+    word from a small curated bucket could cycle back every few posts. The window
+    is short (see ledger.recent_words) so this thins echoes without exhausting
+    the curated pools — and like all rejection here it's best-effort: the try
+    loop is bounded, so a saturated window degrades to the old behavior."""
+    return any(t.strip().lower() in recent_words for s in exp.shots for t in s.tags)
+
+
 def _oversaturated(exp: Experiment, saturation: dict[str, float], rng: random.Random) -> bool:
     """Should this candidate be resampled for being the same shape as everything lately?
 
@@ -644,18 +762,27 @@ def pick_experiment(rng: random.Random | None = None, ctx: WalkContext | None = 
     rng = rng or random.Random()
     ctx = ctx or WalkContext(corpus=load_corpus())
     names = list(BASE_WEIGHTS)
+
+    def _cooled(n: str) -> float:
+        """0 while the mode sits inside its cooldown window, 1 otherwise."""
+        k = MODE_COOLDOWN.get(n, 0)
+        return 0.0 if k and n in ctx.recent_modes[-k:] else 1.0
+
     if rng.random() < EXPLORATION_FLOOR:
-        weights = [BASE_WEIGHTS[n] for n in names]                    # pure exploration
+        weights = [BASE_WEIGHTS[n] * _cooled(n) for n in names]       # pure exploration
     else:
-        weights = [BASE_WEIGHTS[n] * min(_FEEDBACK_CAP, max(0.0, ctx.mode_weights.get(n, 1.0)))
+        weights = [BASE_WEIGHTS[n] * _cooled(n)
+                   * min(_FEEDBACK_CAP, max(0.0, ctx.mode_weights.get(n, 1.0)))
                    for n in names]
 
     def draw() -> Experiment:
         return _build_mode(rng.choices(names, weights=weights, k=1)[0], rng, ctx)
 
     exp = draw()
-    for _ in range(_ANTI_REPEAT_TRIES):     # dodge exact repeats and shape monoculture
-        if not _is_repeat(exp, ctx.recent) and not _oversaturated(exp, ctx.shape_saturation, rng):
+    for _ in range(_ANTI_REPEAT_TRIES):     # dodge repeats (topic + word level) and shape monoculture
+        if (not _is_repeat(exp, ctx.recent)
+                and not _word_repeat(exp, ctx.recent_words)
+                and not _oversaturated(exp, ctx.shape_saturation, rng)):
             return exp
         exp = draw()
     return exp
