@@ -49,6 +49,7 @@ def extract_fragments(
             source_url=img.get("source_url", ""),
             source_domain=urlparse(img.get("source_url", "")).netloc,
             image_source="openverse",
+            og={"title": img.get("title", "")},  # kept so the publisher can screen it
         ))
 
     for img in (wikimedia or []):
@@ -58,6 +59,7 @@ def extract_fragments(
             source_url=img.get("source_url", ""),
             source_domain=urlparse(img.get("source_url", "")).netloc,
             image_source="wikimedia",
+            og={"title": img.get("title", "")},  # kept so the publisher can screen it
         ))
 
     for img in (artic or []):
@@ -67,6 +69,7 @@ def extract_fragments(
             source_url=img.get("source_url", ""),
             source_domain=urlparse(img.get("source_url", "")).netloc,
             image_source="artic",
+            og={"title": img.get("title", "")},  # kept so the publisher can screen it
         ))
 
     all_texts = list(texts) + list(enriched_texts or [])

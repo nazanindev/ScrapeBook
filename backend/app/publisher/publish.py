@@ -5,17 +5,18 @@ Run from the backend dir:
     python -m app.publisher.publish verify
     python -m app.publisher.publish refresh-corpora
     python -m app.publisher.publish render --experiment lift --out /tmp/ephemera
-    python -m app.publisher.publish run    --experiment random --state draft
+    python -m app.publisher.publish run    --experiment random --state published
     python -m app.publisher.publish review
     python -m app.publisher.publish metrics
     python -m app.publisher.publish steer  --toward met --pin glacier
     python -m app.publisher.publish sync
 
 The walk is corpus-fed and steerable: `refresh-corpora` pulls evocative material from
-outside the loop (museums + poetry); `steer` biases the walk; `run` records every post to
+outside the loop (museums + poetry); `steer` biases the walk; `run` screens each render
+(empty canvas / blocklist — see screen.py) and posts the survivors, recording every one to
 the private ledger; `sync` reads how they landed back from Tumblr; `review` shows what's
 interesting and `metrics` shows the distribution the walk is actually producing. See the
-module docstrings in corpora.py / ledger.py / steer.py.
+module docstrings in corpora.py / ledger.py / steer.py / screen.py.
 """
 from __future__ import annotations
 import argparse
@@ -34,6 +35,7 @@ except ImportError:  # dotenv is optional; env may be set another way
 from app.publisher import corpora
 from app.publisher import experiments as exp_mod
 from app.publisher import ledger as ledger_mod
+from app.publisher import screen as screen_mod
 from app.publisher import steer
 from app.publisher.caption import build_caption
 from app.publisher.config import Settings
@@ -85,10 +87,17 @@ def _generate_and_render(settings: Settings, exp: Experiment, out_dir: Path) -> 
                   + (f" (seed {shot.layout_seed:08x})" if shot.layout_seed is not None else ""))
             collage = pc.run(shot.topic, shot.density, shot.layout_seed, want_enriched=True)
             png = out_dir / f"{exp.tag}-{i:02d}.png"
-            render_collage(settings.frontend_url, collage, png, scale=settings.render_scale)
-            print(f"      rendered -> {png}")
-            rendered.append({"shot": shot, "collage": collage, "png": png})
+            res = render_collage(settings.frontend_url, collage, png, scale=settings.render_scale)
+            print(f"      rendered -> {png} ({res.images_loaded}/{res.images_expected} images loaded)")
+            rendered.append({"shot": shot, "collage": collage, "png": png, "render": res})
     return rendered
+
+
+def _screen(r: dict, caption: str, tags: list[str]) -> screen_mod.Verdict:
+    shot = r["shot"]
+    return screen_mod.check(png_path=r["png"], images_loaded=r["render"].images_loaded,
+                            collage=r["collage"], topic=shot.topic, caption=caption,
+                            tags=tags, note=shot.note)
 
 
 def cmd_verify(settings: Settings, _args) -> int:
@@ -125,7 +134,8 @@ def cmd_render(settings: Settings, args) -> int:
     for r in rendered:
         caption, tags = build_caption(r["shot"].topic, r["collage"], r["shot"].density, exp, r["shot"].meta_topics, str(r["png"]), r["shot"].tags, note=r["shot"].note)
         print(caption)
-        print(f"tags ({len(tags)}): {tags}\n")
+        print(f"tags ({len(tags)}): {tags}")
+        print(f"screen: {_screen(r, caption, tags)}\n")
     print(f"pngs in {out_dir}")
     return 0
 
@@ -150,7 +160,7 @@ def cmd_run(settings: Settings, args) -> int:
             runs.append(exp)
             ctx = exp_mod.note_pick(ctx, exp)   # later picks see this batch's earlier ones
 
-    posted = 0
+    posted = rejected = 0
     for n, exp in enumerate(runs):
         print(f"\n=== run {n + 1}/{len(runs)}: {exp.name} (#{exp.tag}) · {len(exp.shots)} post(s) ===")
         try:
@@ -159,6 +169,19 @@ def cmd_run(settings: Settings, args) -> int:
                 for r in rendered:
                     shot = r["shot"]
                     caption, tags = build_caption(shot.topic, r["collage"], shot.density, exp, shot.meta_topics, str(r["png"]), shot.tags, note=shot.note)
+                    if not args.no_screen:
+                        verdict = _screen(r, caption, tags)
+                        if not verdict.ok:
+                            # never posted, but remembered: anti-repeat still applies and
+                            # metrics can show which modes/sources produce the rejects
+                            rejected += 1
+                            print(f"  x {verdict}")
+                            led.record(topic=shot.topic, mode=exp.tag, source=shot.source,
+                                       shape=exp_mod.topic_shape(shot.topic),
+                                       components=list(shot.tags), tags=tags,
+                                       post_id=None, state="rejected")
+                            continue
+                        print(f"  screen: {verdict}")
                     resp = pub.post_photo(str(r["png"]), caption, tags, state=state)
                     posted += 1
                     print(f"  posted id={resp.get('id')} state={state} tags={tags}")
@@ -168,7 +191,7 @@ def cmd_run(settings: Settings, args) -> int:
                                post_id=resp.get("id"), state=state)
         except Exception as e:  # one bad scrape/render shouldn't sink the whole batch
             print(f"  ! skipped run {n + 1} ({exp.tag}): {e}")
-    print(f"\ndone: {posted} posts to {state}")
+    print(f"\ndone: {posted} posts to {state} · {rejected} rejected by the screen")
     return 0
 
 
@@ -220,10 +243,12 @@ def cmd_metrics(settings: Settings, args) -> int:
               "LEDGER_SECRET matches on both sides; the client fails soft by design.")
         return 1
 
-    posted = [r for r in records if r.get("post_id")]
+    posted = [r for r in records if ledger_mod.attempted(r)]
     published = [r for r in posted if r.get("state") == "published"]
-    kept = f" · {len(published)} published ({len(published) / len(posted):.0%} kept)" if posted else ""
-    print(f"{len(records)} records · {len(posted)} posted{kept}")
+    rejected = [r for r in posted if r.get("state") == "rejected"]
+    kept = (f" · {len(published)} published ({len(published) / len(posted):.0%} kept)"
+            f" · {len(rejected)} rejected by the screen") if posted else ""
+    print(f"{len(records)} records · {len(posted)} attempted{kept}")
     print(f"direction: {steer.describe(steer.load())}")
     print(f"corpus: {corpora.summary(corpora.load())}")
 
@@ -299,6 +324,8 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--seed", type=int, default=None, help="rng seed for reproducible experiment choice")
     p_run.add_argument("--topics", default=None, help="themed drop: explicit topics separated by ; (overrides --experiment)")
     p_run.add_argument("--tag", default="dispatch", help="grouping tag for a --topics drop")
+    p_run.add_argument("--no-screen", action="store_true",
+                       help="post everything; skip the empty-canvas / blocklist screen (see screen.py)")
     p_run.set_defaults(func=cmd_run)
 
     p_review = sub.add_parser("review", help="show recent topics + what's interesting")

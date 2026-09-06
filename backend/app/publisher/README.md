@@ -60,18 +60,36 @@ hook (this repo's does). For local dev, `docker compose up` gives you the API on
 # from backend/
 python -m app.publisher.publish verify         # check creds
 python -m app.publisher.publish render --experiment density-ladder --out /tmp/eu
-python -m app.publisher.publish run    --experiment random --state draft
+python -m app.publisher.publish run    --experiment random --state published
 ```
 
 - `verify` — confirms auth, prints the target blog.
-- `render` — full pipeline + screenshots + prints captions, **posts nothing**. Use this first.
-- `run` — also posts. Defaults to `--state draft` so nothing goes public until you look.
+- `render` — full pipeline + screenshots + prints captions and each shot's screen
+  verdict, **posts nothing**. Use this first.
+- `run` — also posts. Locally it defaults to `--state draft` (env `EPHEMERA_POST_STATE`);
+  the GitHub Action passes `--state published`.
 
-### Going live / scheduling
-Set `EPHEMERA_POST_STATE=queue` and configure the blog's queue (Settings → Queue)
-to drip 1–3 posts/day at random times — that's your scheduler for free. Then a cron
-that runs `... publish run --experiment random --count 3` every morning keeps the
-queue fed.
+### The publish-time screen
+There is no human in the loop any more, so `run` gates every render through
+`screen.py` before posting:
+
+- **empty-ish canvas** — the frontend drops images that fail to load, so a collage
+  whose sources 404'd renders as a few text scraps on cream. Measured on the PNG:
+  rejected below 40% non-background coverage or fewer than 4 distinct loaded images.
+  (Real collages measured 54–89%; broken ones 12% and 35% with 2 images.)
+- **inappropriate text** — a whole-word blocklist (sexual, slurs, strong profanity,
+  self-harm, violence) over the topic, caption, tags, every text fragment, image
+  titles, and the source page paths. Titles only: there is no image classifier, so a
+  nude with a neutral title ("Torso") gets through.
+
+Rejected shots are never posted; they are recorded to the ledger as `rejected` so
+the walk won't retry the topic and `metrics` shows what gets thrown out. Tune the
+thresholds and word lists in `screen.py`; `run --no-screen` bypasses it.
+
+### Scheduling
+`.github/workflows/ephemera.yml` runs the walk daily and posts straight to public.
+To drip posts instead of dropping the batch at once, dispatch it with `queue` and
+configure the blog's queue (Settings → Queue) to 1–3 posts/day.
 
 ## Notes
 - `render` and `run` need the backend + frontend reachable; `verify` only needs Tumblr.

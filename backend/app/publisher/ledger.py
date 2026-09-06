@@ -110,10 +110,18 @@ def recent_modes(records: list[dict]) -> tuple[str, ...]:
     return tuple(r["mode"] for r in records if r.get("mode"))
 
 
+def attempted(record: dict) -> bool:
+    """A record that went through the publish step: posted, or rejected by the
+    publish-time screen (never posted, no post_id — see publisher/screen.py)."""
+    return bool(record.get("post_id")) or record.get("state") == "rejected"
+
+
 def _reward(record: dict) -> float:
-    """How well one post landed. Publishing is the curation signal — the walk posts to
-    drafts and you promote the keepers by hand — so it carries most of the weight;
-    notes are a capped bonus on top."""
+    """How well one post landed. `published` is the survival signal: the walk posts
+    straight to public through the screen, so a published record rendered a real canvas
+    and passed the blocklist, while a `rejected` one did not (older records were
+    curated by hand from drafts — same meaning). It carries most of the weight; notes
+    are a capped bonus on top."""
     reward = 1.0 if record.get("state") == "published" else 0.0
     return reward + min(record.get("notes") or 0, 20) / 20.0
 
@@ -172,15 +180,15 @@ def breakdown(records: list[dict], key: str) -> list[dict]:
     """Per-bucket counts and outcome rates for the `metrics` surface.
 
     Returns rows sorted by volume: how often the walk chose each bucket, how many of
-    those posts you kept, and the average engagement — i.e. what the walk is actually
-    doing versus what's actually working.
+    those attempts went public (passed the screen / were kept), and the average
+    engagement — i.e. what the walk is actually doing versus what's actually working.
     """
     buckets: dict[str, list[dict]] = defaultdict(list)
     for r in records:
         buckets[r.get(key) or "?"].append(r)
     rows = []
     for name, rs in buckets.items():
-        posted = [r for r in rs if r.get("post_id")]
+        posted = [r for r in rs if attempted(r)]
         published = [r for r in posted if r.get("state") == "published"]
         notes = [r.get("notes") or 0 for r in posted]
         rows.append({

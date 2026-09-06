@@ -1,7 +1,8 @@
 name: ephemera
 
-# Auto-walk (curated): on a schedule, generate a few collages and post them to
-# DRAFTS. You review the drafts periodically and publish the ones you like by hand.
+# Auto-walk: on a schedule, generate a few collages, run each through the publish-time
+# screen (empty canvas / blocklist — app/publisher/screen.py) and post the survivors
+# straight to PUBLIC. Pick "draft" in the manual run to review a batch by hand instead.
 on:
   schedule:
     - cron: "0 15 * * *"   # daily at 15:00 UTC — edit to taste
@@ -15,8 +16,8 @@ on:
       state:
         description: "where the posts land"
         type: choice
-        default: "draft"
-        options: ["draft", "queue", "published"]
+        default: "published"
+        options: ["published", "queue", "draft"]
 
 jobs:
   post:
@@ -52,12 +53,12 @@ jobs:
       - name: Sync prior post fates into the ledger (feedback)
         run: python -m app.publisher.publish sync || true
 
-      - name: Walk + post to drafts
+      - name: Walk + screen + post (public by default)
         run: |
           python -m app.publisher.publish run \
             --experiment random \
             --count "${{ github.event.inputs.count || '8' }}" \
-            --state "${{ github.event.inputs.state || 'draft' }}"
+            --state "${{ github.event.inputs.state || 'published' }}"
 
       # Prints the distribution the walk is producing (shape / mode / source) into the
       # run log, so drift is visible in CI without having to run the CLI locally.
